@@ -47,7 +47,7 @@ Frozen for all lanes: `src/receipts/contracts.py`, `src/receipts/settings.py`, `
 
 - A type error in `src/receipts/ui/` that strict mode would catch is not caught; the sabotage check in the W0 brief (`def f(x): return x` is red in `contracts.py` and green in `ui/app.py`) records that gap on purpose.
 - On or before 2026-11-30 the repository owner removes every `--ignore-vuln` flag from `security.yml:37` or re-justifies it here. Today there are none to remove.
-- **Pending, owned by L6 (#18):** the Aceternity "cryptgen" template license check. The landing page stays a local build until the license name, source URL, date read and verdict are recorded in ADR-0005's Consequences.
+- Aceternity licence: recorded in ADR-0005 (PRs #21, #23, merged 2026-11-14) — permitted; the landing-page repository stays private.
 
 ## Alternatives considered
 
