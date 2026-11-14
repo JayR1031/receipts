@@ -6,7 +6,7 @@ All text here is invented: no real companies, people, usernames or keys.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -30,14 +30,13 @@ from receipts.contracts import (
     StartedEvent,
     VerifiedEvent,
 )
+from receipts.fakes import data
 from receipts.fakes.llm import ToolBindingFakeChatModel
 
-T0 = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
+T0 = data.T0
 RUN_ID = RunId("run-sample-0001")
-SUBJECT_URL = "https://acme-widgets.example/pricing"
-RIVAL_URL = "https://zeta-gadgets.example/plans"
-SUBJECT_PAGE = "Acme Widgets. Plans start at 9 dollars per seat per month. Cancel any time."
-RIVAL_PAGE = "Zeta Gadgets. The Team plan is 14 dollars per seat per month, billed yearly."
+SUBJECT_URL = data.SUBJECT_URL
+RIVAL_URL = data.RIVAL_URL
 
 
 @pytest.fixture
@@ -54,32 +53,12 @@ def sample_pack() -> DomainPack:
 
 @pytest.fixture
 def sample_search_results() -> list[SearchResult]:
-    return [
-        SearchResult(
-            query="acme widgets pricing",
-            rank=1,
-            url=SUBJECT_URL,
-            title="Acme Widgets pricing",
-            snippet="Plans start at 9 dollars per seat.",
-            ts=T0,
-        ),
-        SearchResult(
-            query="zeta gadgets pricing",
-            rank=1,
-            url=RIVAL_URL,
-            title="Zeta Gadgets plans",
-            snippet="Team plan is 14 dollars per seat.",
-            ts=T0,
-        ),
-    ]
+    return data.sample_search_results()
 
 
 @pytest.fixture
 def sample_pages() -> dict[str, FetchedPage]:
-    return {
-        SUBJECT_URL: FetchedPage(url=SUBJECT_URL, text=SUBJECT_PAGE, fetched_at=T0, ok=True),
-        RIVAL_URL: FetchedPage(url=RIVAL_URL, text=RIVAL_PAGE, fetched_at=T0, ok=True),
-    }
+    return data.sample_pages()
 
 
 @pytest.fixture
