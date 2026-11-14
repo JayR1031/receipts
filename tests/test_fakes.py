@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from langchain.agents import create_agent
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.tools import tool
+
 from receipts.contracts import (
     Battlecard,
     Claim,
@@ -82,3 +86,32 @@ def test_fake_llm_returns_the_scripted_responses() -> None:
     llm = fake_llm(["hi", "there"])
     assert llm.invoke("x").content == "hi"
     assert llm.invoke("y").content == "there"
+
+
+@tool
+def shout(text: str) -> str:
+    """Upper-case the text."""
+    return text.upper()
+
+
+def test_fake_llm_survives_bind_tools() -> None:
+    bound = fake_llm(["bound reply"]).bind_tools([shout])
+    assert bound.invoke("x").content == "bound reply"
+
+
+def test_fake_llm_drives_create_agent_with_tools() -> None:
+    agent = create_agent(model=fake_llm(["final answer"]), tools=[shout])
+    result = agent.invoke({"messages": [HumanMessage("hi")]})
+    assert result["messages"][-1].content == "final answer"
+
+
+def test_fake_llm_scripted_tool_call_reaches_the_tool() -> None:
+    call = AIMessage(
+        content="",
+        tool_calls=[{"name": "shout", "args": {"text": "hi"}, "id": "call-1", "type": "tool_call"}],
+    )
+    agent = create_agent(model=fake_llm([call, "done"]), tools=[shout])
+    result = agent.invoke({"messages": [HumanMessage("hi")]})
+    tool_messages = [m for m in result["messages"] if isinstance(m, ToolMessage)]
+    assert [m.content for m in tool_messages] == ["HI"]
+    assert result["messages"][-1].content == "done"

@@ -9,7 +9,6 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 
 from receipts import fakes
@@ -31,6 +30,7 @@ from receipts.contracts import (
     StartedEvent,
     VerifiedEvent,
 )
+from receipts.fakes.llm import ToolBindingFakeChatModel
 
 T0 = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
 RUN_ID = RunId("run-sample-0001")
@@ -168,6 +168,6 @@ def fake_keenable(
 
 
 @pytest.fixture
-def fake_llm() -> Callable[[Sequence[str | AIMessage]], GenericFakeChatModel]:
+def fake_llm() -> Callable[[Sequence[str | AIMessage]], ToolBindingFakeChatModel]:
     """A factory: `fake_llm(["first reply", "second reply"])`."""
     return fakes.fake_llm
