@@ -28,6 +28,10 @@ AGENTS.md section 9 allows exactly two gate relaxations, and only the ones this 
 
 Read from the installed package, no API call: `langchain-anthropic` 1.7.10, `langchain_anthropic/chat_models.py` lines 1526–1541 declare `reasoning_effort: Literal["max", "xhigh", "high", "medium", "low"] | None = Field(alias="effort")`, which "Configures `output_config.effort`", and the docstring says `effort` "is also accepted as an alias for this field, at both construction and call time". **Confirmed:** L1 passes `DomainPack.effort` straight through as `ChatAnthropic(model=pack.model, effort=pack.effort)`; `contracts.Effort` is the same five-value literal. No fallback parameter is needed.
 
+### Contract decisions lanes rely on
+
+`RunRepo` and `RunService` methods are `async` (`contracts.py:209-228`); `SearchClient.search` and `FetchClient.fetch` are sync (`:201-206`). `DomainPack.id` is typed `Domain`, and beyond the brief's `max_searches=3`/`max_fetches=4` the defaults are `effort=None`, `source_allow=()`, `source_deny=()`, `timeout_s=120`, `extra_fields=()`, `rubric=""`; `Claim.verified` defaults to `False`. Consequences: L4 needs `create_async_engine(sqlalchemy_url(...), pool_pre_ping=True)` because `RunRepo` is async (aiosqlite and psycopg are locked). L5 must keep `mount_ui(app: FastAPI) -> None` and `UI_PATH` in `src/receipts/ui/app.py` stable, because `src/receipts/api/app.py` (L4's file, W0 lines) imports and calls both; wiring a `RunService` into the UI is W2's job.
+
 ### W1 lane rules (scope cut 2026-11-14: 2 packs, one `runs` table, no Haiku note)
 
 Each lane touches only its globs; tests live in `tests/` (the only folder pytest collects); unit tests use `receipts.fakes` and make no network call; `bin/jig` green then `/judge` before merge.
