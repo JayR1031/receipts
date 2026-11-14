@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from receipts.api.app import create_app
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def client() -> TestClient:
     return TestClient(create_app())
 
@@ -23,10 +23,15 @@ def test_healthz_says_unknown_without_a_sha(
     assert client.get("/healthz").json()["sha"] == "unknown"
 
 
-def test_echo_returns_the_message_and_its_length(client: TestClient) -> None:
-    assert client.post("/echo", json={"message": "hi"}).json() == {"message": "hi", "length": 2}
+def test_root_redirects_to_the_ui(client: TestClient) -> None:
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/ui"
 
 
-@pytest.mark.parametrize("body", [{}, {"message": ""}, {"message": "x", "extra": 1}])
-def test_echo_rejects_invalid_bodies(client: TestClient, body: dict[str, object]) -> None:
-    assert client.post("/echo", json=body).status_code == 422
+def test_ui_is_mounted(client: TestClient) -> None:
+    assert client.get("/ui").status_code == 200
+
+
+def test_echo_is_gone(client: TestClient) -> None:
+    assert client.post("/echo", json={"message": "hi"}).status_code == 404

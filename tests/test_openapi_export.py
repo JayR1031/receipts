@@ -13,4 +13,5 @@ def test_export_writes_a_document_with_every_route(tmp_path: Path) -> None:
     assert module.main([str(out)]) == 0
     doc = json.loads(out.read_text())
     assert doc["info"]["title"] == "Receipts"
-    assert {"/healthz", "/echo"} <= set(doc["paths"])
+    assert {"/healthz"} <= set(doc["paths"])
+    assert "/echo" not in doc["paths"]
