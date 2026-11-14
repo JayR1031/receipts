@@ -5,10 +5,14 @@ All text here is invented: no real companies, people, usernames or keys.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage
 
+from receipts import fakes
 from receipts.contracts import (
     Claim,
     ClaimEvent,
@@ -141,3 +145,29 @@ def sample_events(
         ErrorEvent(run_id=RUN_ID, ts=next(t), domain="pricing", message="search timed out"),
         DoneEvent(run_id=RUN_ID, ts=next(t), verified_count=2, total_count=3),
     ]
+
+
+# --- fakes ------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fake_repo() -> fakes.InMemoryRunRepo:
+    return fakes.InMemoryRunRepo()
+
+
+@pytest.fixture
+def fake_run_service(sample_events: list[RunEvent]) -> fakes.FakeRunService:
+    return fakes.FakeRunService(sample_events)
+
+
+@pytest.fixture
+def fake_keenable(
+    sample_search_results: list[SearchResult], sample_pages: dict[str, FetchedPage]
+) -> fakes.FakeKeenable:
+    return fakes.FakeKeenable(sample_search_results, sample_pages)
+
+
+@pytest.fixture
+def fake_llm() -> Callable[[Sequence[str | AIMessage]], GenericFakeChatModel]:
+    """A factory: `fake_llm(["first reply", "second reply"])`."""
+    return fakes.fake_llm
