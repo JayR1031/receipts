@@ -24,3 +24,18 @@ google, meta, mistral, zhipu, xai
 ## Third-party services the presets send data to
 
 None beyond the cloud provider in ADR-0001.
+
+## Third-party services this project sends data to
+
+Added 2026-11-14 (issue #1). Each row says what leaves the repo or the running app.
+
+| Service | Role | What it receives |
+|---|---|---|
+| Anthropic (vendor above) | Specialist agents and the Verifier's notes, via `langchain-anthropic` | Users' comparison inputs, search results, page text fetched during a run |
+| Keenable | Web search and page fetch, via `langchain-keenable` | Search queries built from the comparison inputs; URLs to fetch |
+| Neon | Postgres for runs, sources, claims, events | Everything a run produces; no user accounts or personal data are stored |
+| Render | Hosts the container (ADR-0005) | The built image and its environment secrets |
+| Mel (desktop agentic terminal) | Builds lane L5 (`ui/`) | Repository code; model calls go to whichever vendor key is set in Mel, and that vendor must be listed above (add `google` here first if Mel runs on a Gemini key) |
+| OpenAI Codex CLI (vendor above) | Builds lane L4 (`db/`, `api/`) | Repository code |
+| FAL | Generates the submission's OG image via the Skillry `bs-duolingo-style-og` skill | One headline, the product name and a one-line context; no code or run data |
+| Skillry | Distributes that skill | Nothing from this repo; installs files under `~/.claude/skills` |

@@ -91,3 +91,9 @@ bin/plan-check docs/superpowers/plans/<plan>.md   # validate an orchestrator tas
 *The only section this project edits.* Stack: `python` · Cloud: `none` (ADR-0001) · Tracker: `github` (ADR-0002) · Approved AI vendors: anthropic, openai (ADR-0004).
 
 Add here, and only here: who approves PRs, document languages, data classifications and what belongs in `scripts/leak_gate/denylist.txt`, tenant or customer conventions, communication channels, and anything else that is true of this organization and not of software in general.
+
+- **Design spec:** `docs/superpowers/specs/2026-11-14-receipts-design.md`. Architecture and hosting: ADR-0005. Third parties: ADR-0004.
+- **Who approves PRs:** the repository owner (`JayR1031`), after a `/judge` verdict.
+- **Lanes (all builders: Claude Code, Codex, Mel).** Touch only your lane's folder (`harness/`, `verify/`, `packs/`, `db/` + `api/`, `ui/`). `src/receipts/contracts.py` and dependencies are frozen after Wave 0; a lane that needs either changed stops and asks instead of editing them. Tests use the in-memory fakes from Wave 0; no network in unit tests.
+- **Document language:** English.
+- **Data:** runs contain public web content only. No user accounts, no personal data, no real API keys in fixtures.
