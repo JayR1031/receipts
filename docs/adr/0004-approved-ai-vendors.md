@@ -20,10 +20,10 @@ Added 2026-11-14 (issue #1). Each row says what leaves the repo or the running a
 
 | Service | Role | What it receives |
 |---|---|---|
-| Anthropic (approved vendor) | Specialist agents and the Verifier's notes, via `langchain-anthropic` | Users' comparison inputs, search results, page text fetched during a run |
+| Anthropic (approved vendor) | Specialist agents and the Verifier's notes, via `langchain-anthropic`; Claude Code builds W0, L1–L3, L6, W2 and W3 | Users' comparison inputs, search results, page text fetched during a run; repository code (Claude Code) |
 | Keenable | Web search and page fetch, via `langchain-keenable` | Search queries built from the comparison inputs; URLs to fetch |
-| Neon | Postgres for runs, sources, claims, events | Everything a run produces, including quotes from public pages that can name people; nothing is collected from the app's users |
-| Render | Hosts the container (ADR-0005) | The built image and its environment secrets |
+| Neon | Postgres for runs, sources, claims, events | Everything a run produces: the comparison inputs a person typed, and quotes from public pages that can name people. No accounts or contact details |
+| Render | Hosts the container (ADR-0005) | The built image, its environment secrets, and everything the running app handles: comparison inputs, run data on its way to Neon, and request logs |
 | Vercel | Hosts the landing page (lane L6, ADR-0005) | The landing page's own repository and build; no code from this repository and no run data |
 | Mel (desktop agentic terminal) | Builds lane L5 (`ui/`) | Repository code; Mel runs on an OpenAI key (an approved vendor, set 2026-11-14). Switching Mel to another vendor needs that vendor added to the approved list first |
 | OpenAI Codex CLI (approved vendor) | Builds lane L4 (`db/`, `api/`) | Repository code |
