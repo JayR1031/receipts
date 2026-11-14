@@ -1,0 +1,26 @@
+name: api-image
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  api-image:
+    name: api-image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Build the api image with this commit's sha
+        run: docker build --build-arg GIT_SHA="$GITHUB_SHA" -t api:ci .
+      - name: Run it and require /healthz to report that sha
+        run: |
+          docker run -d --name api -p 8000:8000 api:ci
+          for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/healthz >/dev/null && break; sleep 1; done
+          body="$(curl -fsS http://127.0.0.1:8000/healthz)" || { docker logs api; exit 1; }
+          echo "$body"
+          want="$(cat <<EOF
+          "sha":"$GITHUB_SHA"
+          EOF
+          )"
+          case "$body" in *"$want"*) ;; *) docker logs api; exit 1 ;; esac

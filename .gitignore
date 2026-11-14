@@ -1,0 +1,30 @@
+# environments and secrets
+.env
+.env.*
+!.env.example
+.venv/
+node_modules/
+# build and caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+.next/
+coverage/
+# worktrees and local tooling
+.worktrees/
+.DS_Store
+# terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.auto.tfvars
+backend.hcl
+# web (Next.js, Vercel, Playwright)
+.vercel/
+next-env.d.ts
+*.tsbuildinfo
+playwright-report/
+test-results/

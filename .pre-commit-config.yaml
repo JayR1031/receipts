@@ -1,0 +1,13 @@
+repos:
+  - repo: local
+    hooks:
+      - id: leak-gate
+        name: leak-gate (data denylist — staged files)
+        entry: python3 scripts/leak_gate/hook.py
+        language: system
+        pass_filenames: true
+      - id: gitleaks
+        name: gitleaks (staged)
+        entry: gitleaks protect --staged --redact --exit-code 1
+        language: system
+        pass_filenames: false

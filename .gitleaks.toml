@@ -1,0 +1,3 @@
+title = "receipts gitleaks config"
+[extend]
+useDefault = true

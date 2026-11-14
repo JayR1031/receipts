@@ -1,0 +1,2 @@
+# One fingerprint per line, each preceded by a comment saying why it is safe.
+# Fingerprint format: <commit>:<path>:<rule-id>:<line>. Prefer this over allowlisting a path.

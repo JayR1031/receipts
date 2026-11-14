@@ -1,0 +1,5 @@
+# One literal, case-sensitive substring per line. Lines starting with # are ignored.
+# What belongs here is decided in AGENTS.md section 9: client names, real invoice or
+# account identifiers, product descriptions from real data, personal names of customers.
+# This file ships EMPTY. An empty list is a gate that is green about everything, so
+# bin/red-test plants an entry to prove the gate can fail. Fill it before the first real data arrives.
