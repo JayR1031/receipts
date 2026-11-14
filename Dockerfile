@@ -10,7 +10,7 @@ RUN uv sync --frozen --no-default-groups
 
 FROM python:3.12-slim
 ARG GIT_SHA=unknown
-ENV GIT_SHA=${GIT_SHA} PATH="/app/.venv/bin:${PATH}"
+ENV GIT_SHA=${GIT_SHA} PATH="/app/.venv/bin:${PATH}" GRADIO_ANALYTICS_ENABLED=False
 RUN useradd --create-home --uid 10001 app
 WORKDIR /app
 COPY --from=build /app /app

@@ -9,6 +9,7 @@ Jay is entering the Miami AI Hackathon solo with ~48 hours to submit. Tracks: **
 The product: a founder/marketer/sales rep types "Us vs. Rival" and gets a one-page battlecard where **every line carries a receipt** — a source URL plus a verbatim quote re-checked against the fetched page, or a logged search result. Claims without a receipt are dropped and counted ("23 of 27 verified"). That answers the judges' first question about any research agent: "how do you know it didn't make that up?"
 
 ## Goals / non-goals / anti-goals
+> Scope cut 2026-11-14: see `docs/superpowers/plans/2026-11-14-w0-foundations-and-w1-lanes.md`, section "Scope cut 2026-11-14"; it overrides this spec and the W0 brief where they differ.
 
 - **Must ship:** 4 specialists + Verifier on one harness; live agent progress in Gradio; battlecard with receipts and a verified/total score; runs in Neon with a History tab; public URL; 2-min demo video; README with architecture diagram; a landing page on Vercel (below).
 - **Landing page (must ship, lane L6; Jay's decision 2026-11-14):** a one-page site built from the Aceternity "cryptgen" template (Next.js 16), kept in its own repository outside this one, using only its hero and features sections, deployed on Vercel and linking to the Render app. Before it is published, confirm the Aceternity license allows a public deployment, and record the answer in ADR-0005. Its fake testimonials, pricing and logo cloud are cut, because invented social proof contradicts a product about receipts.

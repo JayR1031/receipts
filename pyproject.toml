@@ -3,10 +3,32 @@ name = "receipts"
 version = "0.1.0"
 description = "Competitive-intel agent crew where every claim carries a verified receipt"
 requires-python = ">=3.11"
-dependencies = ["fastapi>=0.115", "uvicorn[standard]>=0.30", "pydantic>=2.9"]
+dependencies = [
+    "fastapi>=0.162.5",
+    "uvicorn[standard]>=0.54.0",
+    "pydantic>=2.14.3",
+    "pydantic-settings>=2.6",
+    "gradio>=5",
+    "langchain>=1,<2",
+    "langchain-core>=1",
+    "langchain-anthropic>=1",
+    "langchain-keenable",
+    "sqlalchemy>=2,<3",
+    "psycopg[binary]>=3.2",
+    "aiosqlite>=0.20",
+    "rapidfuzz>=3.9",
+    "pyyaml>=6",
+]
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6", "pyright>=1.1.380", "pip-audit>=2.7", "httpx>=0.27"]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "pyright>=1.1.414",
+    "pip-audit>=2.7",
+    "httpx>=0.27",
+]
 
 [tool.uv]
 default-groups = ["dev"]
@@ -22,6 +44,8 @@ packages = ["src/receipts"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = ["integration: needs a database or network"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 line-length = 100
@@ -33,5 +57,6 @@ mccabe.max-complexity = 6
 
 [tool.pyright]
 include = ["src", "tests"]
+# ADR-0006: strict on all of src; src/receipts/ui opts down per file with `# pyright: basic`.
 strict = ["src"]
 pythonVersion = "3.11"
