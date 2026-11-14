@@ -60,7 +60,7 @@ One uvicorn process; Gradio mounted with `gr.mount_gradio_app` (FastAPI is Starl
 
 ## Execution steps after approval
 
-1. Jay, in parallel: get keys (Anthropic, Keenable, Neon with a `dev` branch, Render account), install Mel and add a model key, then put the keys in the repo's untracked `.env` once the repo exists.
+1. Jay, in parallel: get keys (Anthropic, Keenable, Neon with a `dev` branch, Render account), install Mel and add a model key, then put the keys in `~/.zshenv` as `export NAME=...` lines (AGENTS.md §6: secrets live in the environment; config holds `${NAME}` references). On Render they go in the service's environment settings.
 2. ✅ Done 2026-11-14: `bin/new-project` created https://github.com/JayR1031/receipts (12 of 13 report rows `done`; `pre-commit` skipped because it is not installed locally — CI still runs every gate on each PR). This spec and the third-party ADRs land through issue #1.
 3. `/improve-prompt` with this spec → brief → `/orchestrate <brief>` → plan-graph → Jay approves → W0 on main.
 4. W1: the orchestrator dispatches L1–L3 to Claude worktrees and writes the L4/L5 briefs; Jay starts Codex (L4) and Mel (L5).
