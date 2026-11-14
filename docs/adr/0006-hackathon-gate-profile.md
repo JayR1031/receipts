@@ -10,7 +10,7 @@ AGENTS.md section 9 allows exactly two gate relaxations, and only the ones this 
 
 ### Pyright
 
-`[tool.pyright]` keeps `include = ["src", "tests"]` and lists `strict` explicitly: `src/receipts/contracts.py`, `src/receipts/settings.py`, `src/receipts/fakes`, `src/receipts/harness`, `src/receipts/verify`, `src/receipts/db`, `src/receipts/api`, `src/receipts/packs`. `src/receipts/ui` is not in the list; every file there starts with `# pyright: basic`, because Gradio's public API is partially typed (`gr.mount_gradio_app` reports `reportUnknownMemberType` under strict). For that reason the mount call lives in `src/receipts/ui/app.py` (`mount_ui(app)`), and `src/receipts/api/app.py` stays strict and calls it. No `# type: ignore`, no global `typeCheckingMode` change, `tests` stays included.
+`[tool.pyright]` keeps `include = ["src", "tests"]` and sets `strict = ["src"]`, so every module under `src/receipts/` (including `src/receipts/__init__.py` and any top-level module a later wave adds) is checked in strict mode without a list to maintain. `src/receipts/ui/` opts down per file: every `.py` there, `__init__.py` included, starts with `# pyright: basic`, which overrides the strict path for that file. The reason is that Gradio's public API is partially typed (`gr.mount_gradio_app` reports `reportUnknownMemberType` under strict); for that reason the mount call lives in `src/receipts/ui/app.py` (`mount_ui(app)`), and `src/receipts/api/app.py` stays strict and calls it. Proof recorded at repair time: `def f(x): return x` appended to `src/receipts/ui/app.py` gives 0 errors; the same line in `src/receipts/__init__.py` gives 4 errors. No `# type: ignore`, no global `typeCheckingMode` change, `tests` stays included.
 
 ### pip-audit
 

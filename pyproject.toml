@@ -57,15 +57,6 @@ mccabe.max-complexity = 6
 
 [tool.pyright]
 include = ["src", "tests"]
-# ADR-0006: strict everywhere except src/receipts/ui (per-file `# pyright: basic`).
-strict = [
-    "src/receipts/contracts.py",
-    "src/receipts/settings.py",
-    "src/receipts/fakes",
-    "src/receipts/harness",
-    "src/receipts/verify",
-    "src/receipts/db",
-    "src/receipts/api",
-    "src/receipts/packs",
-]
+# ADR-0006: strict on all of src; src/receipts/ui opts down per file with `# pyright: basic`.
+strict = ["src"]
 pythonVersion = "3.11"
