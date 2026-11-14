@@ -88,12 +88,21 @@ bin/plan-check docs/superpowers/plans/<plan>.md   # validate an orchestrator tas
 
 ## 9. Project overlay
 
-*The only section this project edits.* Stack: `python` · Cloud: `none` (ADR-0001) · Tracker: `github` (ADR-0002) · Approved AI vendors: anthropic, openai (ADR-0004).
+*The only section this project edits.* Stack: `python` · Cloud: `none` (ADR-0001) · Hosting: Render for the app, Vercel for the landing page (ADR-0005) · Tracker: `github` (ADR-0002) · Approved AI vendors: anthropic, openai (ADR-0004).
 
 Add here, and only here: who approves PRs, document languages, data classifications and what belongs in `scripts/leak_gate/denylist.txt`, tenant or customer conventions, communication channels, and anything else that is true of this organization and not of software in general.
 
 - **Design spec:** `docs/superpowers/specs/2026-11-14-receipts-design.md`. Architecture and hosting: ADR-0005. Third parties: ADR-0004.
-- **Who approves PRs:** the repository owner (`JayR1031`), after a `/judge` verdict.
-- **Lanes (all builders: Claude Code, Codex, Mel).** Touch only your lane's folder (`harness/`, `verify/`, `packs/`, `db/` + `api/`, `ui/`). `src/receipts/contracts.py` and dependencies are frozen after Wave 0; a lane that needs either changed stops and asks instead of editing them. Tests use the in-memory fakes from Wave 0; no network in unit tests.
+- **Who merges PRs:** the repository owner (`JayR1031`), after a `/judge` PASS. The ruleset does not enforce this (it requires 0 approvals and has no judge check), so every builder follows it as a rule.
+- **Lanes (all builders: Claude Code, Codex, Mel).** Touch only your lane's paths. Tests go in `tests/`, the only folder pytest collects (`pyproject.toml` `testpaths`); a test anywhere else never runs.
+  - L1 harness: `src/receipts/harness/**`, `tests/test_harness*.py`
+  - L2 verifier: `src/receipts/verify/**`, `tests/test_verify*.py`
+  - L3 packs: `src/receipts/packs/**`, `tests/fixtures/**`, `tests/test_packs*.py`
+  - L4 persistence and API: `src/receipts/db/**`, `src/receipts/api/**` (not the Wave 0 mount and redirect lines), `tests/test_db*.py`, `tests/test_api*.py`, `docs/api/openapi.json`
+  - L5 UI: `src/receipts/ui/**`, `tests/test_ui*.py`
+  - L6 landing page: its own repository outside this one
+- **Frozen after Wave 0:** `src/receipts/contracts.py`, `src/receipts/settings.py`, `src/receipts/fakes/**`, `tests/conftest.py`, `pyproject.toml`, `uv.lock`. A lane that needs one changed stops and asks instead of editing it. Unit tests use the Wave 0 fakes; no network in unit tests.
+- **Gate exceptions:** only the ones ADR-0006 (hackathon gate profile, written in Wave 0) records: pyright basic mode for `src/receipts/ui/` only, and pip-audit exceptions each named by advisory id with an expiry no later than 2026-11-30. Nothing else may relax a gate.
 - **Document language:** English.
-- **Data:** runs contain public web content only. No user accounts, no personal data, no real API keys in fixtures.
+- **Data:** nothing is collected from the people who use the app: no accounts, no sign-ups. Runs store quotes from public web pages in Neon, and those pages can name people (press bylines, Reddit usernames). Test fixtures, including L3's golden set, are synthetic pages written for the test: no copied text that names a real person, no usernames, no real API keys.
+- **Leak-gate denylist** (`scripts/leak_gate/denylist.txt`): this project has no client or customer data, and the denylist is itself a public file, so it never lists a real person's name. It holds the host suffixes of Neon database endpoints (listed only in the file itself, which the gate skips, because naming them anywhere else would trip it), so a committed connection string fails the gate even when gitleaks does not recognise it. Secrets in general are gitleaks' job.
