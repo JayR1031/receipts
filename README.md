@@ -175,6 +175,12 @@ sequenceDiagram
 - **Claims.** The agent ends with a fenced JSON list of claims, each with a quote or search
   receipt. A final message with no parseable list becomes an `error` event for that domain, not a
   crash.
+- **Repairs (Mellea).** A claim the verifier would not verify gets up to two rewrites before it
+  is judged, through [Mellea](https://mellea.ai)'s instruct-validate-repair loop. The requirement
+  is the verifier itself, and its reason for failing is the feedback for the next rewrite. Mellea
+  never marks a claim verified: the repaired claim goes to the verifier like any other, and a claim
+  still failing after two rewrites, or when the pack's time runs out, is judged as the agent
+  wrote it (`src/receipts/harness/repair.py`, ADR-0007).
 - **The log is the source of truth.** The tools record every result in a per-run `ToolLog`.
   Agents see a page cut to 6000 characters; the verifier reads the full text
   (`src/receipts/harness/tools.py`).
@@ -480,6 +486,8 @@ flowchart LR
 **Credits.**
 
 - **Claude Code** built Wave 0 and lanes L1 to L5, each in its own worktree.
+- **Mellea** (IBM, Apache 2.0, a hackathon sponsor) runs the repair loop for claims that fail
+  the verifier (ADR-0007).
 - **Mel** drafted the demo script, the first architecture diagram (corrected against the code for
   this README) and the submission draft, running on an OpenAI key (ADR-0004, Mel row).
 

@@ -1,12 +1,20 @@
 """Lane L1: pack loader, SpecialistRunner, Coordinator, InProcessRunService. Owned by L1 from W1.
 
 W2 wiring: `InProcessRunService(Coordinator(packs, SpecialistRunner(search, fetch,
-verify=receipts.verify.verify_claim), max_concurrent=settings.max_concurrent_specialists), repo)`.
+verify=receipts.verify.verify_claim, repair_factory=live_repair_factory),
+max_concurrent=settings.max_concurrent_specialists), repo)`. Repairs: `receipts.harness.repair`.
 """
 
 from receipts.harness.coordinator import Coordinator, Specialist
 from receipts.harness.live import KeenableFetchClient, KeenableSearchClient, live_model_factory
 from receipts.harness.packs import load_pack
+from receipts.harness.repair import (
+    MAX_REPAIRS,
+    ClaimRepairer,
+    MelleaClaimRepairer,
+    RepairFactory,
+    RepairRequest,
+)
 from receipts.harness.service import InProcessRunService, new_uuid_run_id
 from receipts.harness.specialist import (
     Clock,
@@ -21,12 +29,17 @@ from receipts.harness.specialist import (
 from receipts.harness.tools import ToolLog, make_tools
 
 __all__ = [
+    "MAX_REPAIRS",
+    "ClaimRepairer",
     "Clock",
     "Coordinator",
     "InProcessRunService",
     "KeenableFetchClient",
     "KeenableSearchClient",
+    "MelleaClaimRepairer",
     "ModelFactory",
+    "RepairFactory",
+    "RepairRequest",
     "Specialist",
     "SpecialistRunner",
     "ToolLog",
