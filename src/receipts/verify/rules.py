@@ -11,7 +11,11 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   `rapidfuzz.fuzz.partial_ratio >= FUZZY_THRESHOLD` is `quote_fuzzy`, else a miss. The fuzzy
   match must cover the *whole quote* (`partial_ratio_alignment`'s span over the quote is
   `[0, len(quote))`); otherwise a page shorter than the quote would match inside the quote and
-  "verify" text that is not on the page.
+  "verify" text that is not on the page. **Numbers must match** (deliberate tightening of the
+  spec's `partial_ratio >= 90` rule): every maximal digit run in the normalized quote must
+  appear as a digit run somewhere in the normalized page, else the fuzzy match is a miss. A
+  one-digit price change scores ~97, and a battlecard must never show a wrong number as
+  verified. Exact substring matches already contain their numbers and are unaffected.
 * `SearchReceipt`: verified (`search_log`) iff a logged `SearchResult` has the same `query`,
   `url` and `rank`. A query that was never logged this run is **dropped**; a logged query whose
   rows do not contain that url/rank is a miss.
@@ -58,6 +62,7 @@ _STAR = re.compile(r"\*")
 # strips _em_ and __strong__, keeps snake_case
 _UNDERSCORE_EMPHASIS = re.compile(r"(?<!\w)_+|_+(?!\w)")
 _WHITESPACE = re.compile(r"\s+")
+_DIGIT_RUN = re.compile(r"\d+")
 _QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
 _DASHES = str.maketrans({"–": "-", "—": "-"})
 
@@ -118,25 +123,40 @@ def _verify_quote(claim: Claim, receipt: QuoteReceipt, pages: Mapping[str, Fetch
     quote, body = normalize(receipt.quote), normalize(page.text)
     if quote and quote in body:
         return _outcome(claim, verified=True, method="quote_exact", note=None)
-    # `partial_ratio` slides the *shorter* string along the longer one. When the page is the
-    # shorter one, the page is matched inside the quote, so a 7-char page scores 100 against a
-    # made-up 42-char quote. The alignment's `src_*` span is the part of the quote (first
-    # argument) that matched; it must be the whole quote.
-    alignment = fuzz.partial_ratio_alignment(quote, body)
-    score = 0.0 if alignment is None else alignment.score
-    if score < FUZZY_THRESHOLD:
-        note = f"quote not found on page: best partial_ratio={score:.1f} < {FUZZY_THRESHOLD}"
-        return _outcome(claim, verified=False, method=None, note=note)
-    assert alignment is not None  # score >= threshold > 0 implies an alignment
-    if not (alignment.src_start == 0 and alignment.src_end == len(quote)):
-        note = (
-            "quote not found on page: fuzzy match does not cover the whole quote "
-            f"(partial_ratio={score:.1f} on {alignment.src_end - alignment.src_start}"
-            f"/{len(quote)} chars)"
-        )
-        return _outcome(claim, verified=False, method=None, note=note)
+    miss = _fuzzy_miss(quote, body)
+    if miss is not None:
+        return _outcome(claim, verified=False, method=None, note=miss)
+    score = fuzz.partial_ratio(quote, body)
     note = f"fuzzy match: partial_ratio={score:.1f} >= {FUZZY_THRESHOLD}"
     return _outcome(claim, verified=True, method="quote_fuzzy", note=note)
+
+
+def _fuzzy_miss(quote: str, body: str) -> str | None:
+    """Why the normalized `quote` is *not* a fuzzy match for `body`, or `None` when it is.
+
+    `partial_ratio` slides the *shorter* string along the longer one. When the page is the
+    shorter one, the page is matched inside the quote, so a 7-char page scores 100 against a
+    made-up 42-char quote. The alignment's `src_*` span is the part of the quote (first
+    argument) that matched; it must be the whole quote. Then every digit run in the quote must
+    be on the page (module docstring: numbers must match).
+    """
+    alignment = fuzz.partial_ratio_alignment(quote, body)
+    score = 0.0 if alignment is None else alignment.score
+    if alignment is None or score < FUZZY_THRESHOLD:
+        return f"quote not found on page: best partial_ratio={score:.1f} < {FUZZY_THRESHOLD}"
+    if not (alignment.src_start == 0 and alignment.src_end == len(quote)):
+        covered = alignment.src_end - alignment.src_start
+        return (
+            "quote not found on page: fuzzy match does not cover the whole quote "
+            f"(partial_ratio={score:.1f} on {covered}/{len(quote)} chars)"
+        )
+    missing = sorted(set(_DIGIT_RUN.findall(quote)) - set(_DIGIT_RUN.findall(body)), key=int)
+    if missing:
+        return (
+            f"quote not found on page: numbers differ ({', '.join(missing)} not on page; "
+            f"partial_ratio={score:.1f})"
+        )
+    return None
 
 
 def _verify_search(claim: Claim, receipt: SearchReceipt, searches: Sequence[SearchResult]) -> Claim:

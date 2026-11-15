@@ -160,6 +160,30 @@ def test_quote_missing_one_word_still_fuzzy_verifies() -> None:
     assert (out.verified, out.verify_method) == (True, "quote_fuzzy")
 
 
+def test_fuzzy_quote_with_a_changed_number_is_a_miss() -> None:
+    # Deliberate tightening of the spec's partial_ratio >= 90 rule: a one-digit price change
+    # scores 97.4, but a battlecard must never show a wrong number as verified.
+    url = "https://numbers.example/"
+    text = "Basic is 14 dollars per seat per month, billed yearly."
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, "Basic is 19 dollars per seat per month"), pages, [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note is not None
+    assert out.verify_note.startswith("quote not found on page")
+    assert "19" in out.verify_note
+    assert not is_dropped(out)
+
+
+def test_fuzzy_quote_with_matching_numbers_still_verifies() -> None:
+    url = "https://numbers.example/"
+    text = "Basic is 14 dollars per seat per month, billed yearly."
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    exact = verify_claim(quote_claim(url, "Basic is 14 dollars per seat"), pages, [])
+    assert (exact.verified, exact.verify_method) == (True, "quote_exact")
+    fuzzy = verify_claim(quote_claim(url, "Basic costs 14 dollars per seat per month"), pages, [])
+    assert (fuzzy.verified, fuzzy.verify_method) == (True, "quote_fuzzy")
+
+
 def test_markdown_wrapped_page_still_matches() -> None:
     pages = {MD_URL: FetchedPage(url=MD_URL, text=MD_PAGE, fetched_at=T0, ok=True)}
     claim = quote_claim(MD_URL, "The Team plan is 14 dollars per seat per month - billed yearly.")
