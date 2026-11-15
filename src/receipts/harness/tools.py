@@ -18,10 +18,26 @@ PAGE_TEXT_LIMIT = 6000
 """Agents see a truncated copy of a page; the Verifier reads the full text from the log."""
 
 
+@dataclass(frozen=True)
+class SearchCall:
+    query: str
+    rows: tuple[SearchResult, ...]
+
+
+@dataclass(frozen=True)
+class FetchCall:
+    page: FetchedPage
+
+
 @dataclass
 class ToolLog:
-    """What the tools returned during one specialist's run, in call order."""
+    """What the tools returned during one specialist's run.
 
+    `calls` holds every search and fetch in the order the agent made them, and the runner
+    replays events from it. `searches` and `fetches` are per-kind views kept in step with it.
+    """
+
+    calls: list[SearchCall | FetchCall] = field(default_factory=list[SearchCall | FetchCall])
     searches: list[tuple[str, tuple[SearchResult, ...]]] = field(
         default_factory=list[tuple[str, tuple[SearchResult, ...]]]
     )
@@ -58,11 +74,13 @@ def make_tools(search: SearchClient, fetch: FetchClient, *, log: ToolLog) -> lis
     def keenable_search(query: str) -> str:
         rows = tuple(search.search(query))
         log.searches.append((query, rows))
+        log.calls.append(SearchCall(query, rows))
         return _render_results(rows)
 
     def keenable_fetch(url: str) -> str:
         page = fetch.fetch(url)
         log.fetches.append(page)
+        log.calls.append(FetchCall(page))
         return _render_page(page)
 
     return [

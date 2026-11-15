@@ -190,3 +190,65 @@ async def test_unparseable_final_message_is_an_error_event_not_a_crash(
     assert len(events) == 1
     error = events[0]
     assert isinstance(error, ErrorEvent) and error.domain == "pricing"
+
+
+async def test_search_receipt_ts_comes_from_the_logged_row_not_the_model(
+    fake_keenable: FakeKeenable, sample_pack: DomainPack
+) -> None:
+    final = _final(
+        [
+            {
+                "about": "subject",
+                "text": "Acme ranks first for its pricing query.",
+                "receipt": {
+                    "kind": "search",
+                    "query": "acme widgets pricing",
+                    "rank": 1,
+                    "url": data.SUBJECT_URL,
+                    "ts": "2001-01-01T00:00:00Z",
+                },
+            }
+        ]
+    )
+    runner = SpecialistRunner(
+        fake_keenable,
+        fake_keenable,
+        model_factory=lambda _p: fake_llm([_search_call(1, "acme widgets pricing"), final]),
+        verify=_mark_verified,
+        clock=_clock,
+    )
+    events = [e async for e in runner.run(RUN_ID, REQUEST, sample_pack)]
+    claims = [e for e in events if isinstance(e, ClaimEvent)]
+    assert len(claims) == 1
+    receipt = claims[0].claim.receipt
+    assert receipt.kind == "search" and receipt.ts == data.T0
+
+
+async def test_fetch_budget_stops_at_max_fetches(
+    fake_keenable: FakeKeenable, sample_pack: DomainPack
+) -> None:
+    pack = sample_pack.model_copy(update={"max_fetches": 2})
+    script: list[str | AIMessage] = [_fetch_call(i, data.SUBJECT_URL) for i in range(5)]
+    script.append(_final([]))
+    runner = SpecialistRunner(
+        fake_keenable, fake_keenable, model_factory=lambda _pack: fake_llm(script), clock=_clock
+    )
+    events = [e async for e in runner.run(RUN_ID, REQUEST, pack)]
+    assert len(fake_keenable.fetches) == 2
+    assert len([e for e in events if isinstance(e, FetchEvent)]) == 2
+
+
+async def test_tool_events_replay_in_call_order(
+    fake_keenable: FakeKeenable, sample_pack: DomainPack
+) -> None:
+    script: list[str | AIMessage] = [
+        _search_call(1, "acme widgets pricing"),
+        _fetch_call(2, data.SUBJECT_URL),
+        _search_call(3, "zeta gadgets pricing"),
+        _final([]),
+    ]
+    runner = SpecialistRunner(
+        fake_keenable, fake_keenable, model_factory=lambda _p: fake_llm(script), clock=_clock
+    )
+    events = [e async for e in runner.run(RUN_ID, REQUEST, sample_pack)]
+    assert [e.kind for e in events] == ["search", "fetch", "search"]

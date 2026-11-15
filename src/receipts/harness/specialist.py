@@ -8,8 +8,8 @@ scripted fake model drives it too): the system prompt asks the model to end with
 ```json block holding a list of claim drafts, `[{"about", "text", "receipt": {...}}]`, where a
 receipt is `{"kind": "quote", "url", "quote"}` or `{"kind": "search", "query", "rank", "url"}`.
 The last such block in the final message is parsed with a Pydantic `TypeAdapter`; a search
-receipt's `ts` is filled from the logged search row (or the clock when no row matches). A final
-message with no parseable block is an `ErrorEvent` for the domain, not a crash.
+receipt's `ts` is always taken from the logged search row (or the clock when no row matches).
+A final message with no parseable block is an `ErrorEvent` for the domain, not a crash.
 
 Events are yielded after the agent finishes, in tool-call order: the tools run synchronously
 inside the agent loop, so recording into a `ToolLog` and replaying is simpler than threading an
@@ -51,7 +51,7 @@ from receipts.contracts import (
     SearchResult,
     VerifiedEvent,
 )
-from receipts.harness.tools import ToolLog, make_tools
+from receipts.harness.tools import SearchCall, ToolLog, make_tools
 
 Clock = Callable[[], datetime]
 ModelFactory = Callable[[DomainPack], BaseChatModel]
@@ -65,9 +65,10 @@ def utc_now() -> datetime:
 def default_model_factory(pack: DomainPack) -> BaseChatModel:
     """`ChatAnthropic` for the pack's model and effort. Imported and built here, never at import.
 
-    `model_name` is the field behind the `model` alias and `effort` the alias of
-    `reasoning_effort`; this is the spelling pyright accepts, and `populate_by_name=True` makes
-    it equivalent to `ChatAnthropic(model=pack.model, effort=pack.effort)` (ADR-0006).
+    In `langchain_anthropic` the field is `model` and `model_name` is its alias; `effort` is the
+    alias of `reasoning_effort`. `model_name=` is the spelling pyright accepts, and
+    `populate_by_name=True` makes it equivalent to `ChatAnthropic(model=pack.model,
+    effort=pack.effort)` (ADR-0006).
     """
     from langchain_anthropic import ChatAnthropic
 
@@ -127,7 +128,6 @@ class _SearchDraft(BaseModel):
     query: str
     rank: int
     url: str
-    ts: datetime | None = None
 
 
 class _ClaimDraft(BaseModel):
@@ -159,8 +159,12 @@ def extract_json_block(text: str) -> str | None:
 
 
 def _search_ts(draft: _SearchDraft, rows: Sequence[SearchResult], now: datetime) -> datetime:
-    if draft.ts is not None:
-        return draft.ts
+    """The logged row's `ts` for this receipt; never a model-supplied value.
+
+    `_SearchDraft` has no `ts` field and `extra="ignore"`, so a `ts` the model writes is dropped
+    without failing the parse. `now` is only the fallback when no logged row matches the
+    receipt's query and url; the verifier then drops that claim.
+    """
     for row in rows:
         if row.url == draft.url and row.query.casefold() == draft.query.casefold():
             return row.ts
@@ -269,14 +273,28 @@ class SpecialistRunner:
         return final_text(result["messages"])
 
     def _tool_events(self, run_id: RunId, pack: DomainPack, log: ToolLog) -> list[RunEvent]:
-        events: list[RunEvent] = [
-            SearchEvent(run_id=run_id, ts=self._clock(), domain=pack.id, query=q, results=rows)
-            for q, rows in log.searches
-        ]
-        events.extend(
-            FetchEvent(run_id=run_id, ts=self._clock(), domain=pack.id, url=p.url, ok=p.ok)
-            for p in log.fetches
-        )
+        events: list[RunEvent] = []
+        for call in log.calls:
+            if isinstance(call, SearchCall):
+                events.append(
+                    SearchEvent(
+                        run_id=run_id,
+                        ts=self._clock(),
+                        domain=pack.id,
+                        query=call.query,
+                        results=call.rows,
+                    )
+                )
+            else:
+                events.append(
+                    FetchEvent(
+                        run_id=run_id,
+                        ts=self._clock(),
+                        domain=pack.id,
+                        url=call.page.url,
+                        ok=call.page.ok,
+                    )
+                )
         return events
 
     def _claim_events(
