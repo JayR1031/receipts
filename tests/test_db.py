@@ -17,6 +17,7 @@ from receipts.contracts import (
     RUN_EVENT_ADAPTER,
     Battlecard,
     Claim,
+    ErrorEvent,
     RunEvent,
     RunId,
     RunSummary,
@@ -100,6 +101,38 @@ async def test_list_runs_is_newest_first(repo: SqlRunRepo) -> None:
 
     assert [s.run_id for s in listed] == [newer, older]
     assert all(s.started_at.tzinfo is not None for s in listed)
+
+
+async def test_events_alone_set_status_counts_and_names(
+    repo: SqlRunRepo, sample_events: list[RunEvent]
+) -> None:
+    """No `save_battlecard`: the list row is derived from the Started and Done events."""
+    pending = _summary(RUN_ID, T0).model_copy(update={"subject": "pending", "rival": "pending"})
+    await repo.save_run(pending)
+    for event in sample_events:
+        await repo.append_event(event)
+
+    [listed] = await repo.list_runs()
+
+    assert await repo.get_run(RUN_ID) is None
+    assert listed.status == "done"
+    assert (listed.verified_count, listed.total_count) == (2, 3)  # from the DoneEvent
+    assert (listed.subject, listed.rival) == ("Acme Widgets", "Zeta Gadgets")  # StartedEvent
+
+
+async def test_error_event_sets_status_error(
+    repo: SqlRunRepo, sample_events: list[RunEvent]
+) -> None:
+    await repo.save_run(_summary(RUN_ID, T0))
+    for event in sample_events:
+        await repo.append_event(event)
+        if isinstance(event, ErrorEvent):
+            break
+
+    [listed] = await repo.list_runs()
+
+    assert listed.status == "error"
+    assert (listed.verified_count, listed.total_count) == (0, 0)  # no DoneEvent yet
 
 
 async def test_get_run_unknown_is_none(repo: SqlRunRepo) -> None:
