@@ -17,10 +17,10 @@ checked against the web page or search result it came from.
 </div>
 
 > [!IMPORTANT]
-> **Status on `main`:** the live app and the API replay one built-in, scripted demo run
-> (invented companies Acme Widgets vs Zeta Gadgets, pricing pack only). Whatever subject and
-> rival you enter, you get that replay. Live runs with Claude, Keenable and Neon are Wave 2,
-> issue #19, and are not merged yet.
+> **Status on `main` (2026-11-15):** the deployed app runs live comparisons.
+> - **How a run works:** Claude agents search and fetch with Keenable, and every claim goes through the verifier. A claim that fails gets up to two Mellea rewrites. Runs are stored in Neon.
+> - **The passcode:** starting a run needs the demo passcode (the Passcode field in the UI, `X-Demo-Passcode` in the API). Reading runs does not.
+> - **Without the live keys** (`ANTHROPIC_API_KEY`, `KEENABLE_API_KEY`), for example in a local run with no environment, the app replays one built-in demo run of invented companies instead.
 >
 > The live app runs on Render's free tier, which sleeps after 15 minutes idle. The first load can
 > take about a minute (Render's free-tier docs, cited in ADR-0005).
@@ -52,7 +52,7 @@ failed, the reason.
 ## What you see in 30 seconds
 
 1. Type a **subject** (you), a **rival** and an optional **category**, plus the demo passcode.
-2. With live wiring (issue #19, not merged), two specialists run in parallel, one per domain pack: `pricing` and `positioning_seo`. The demo replay on `main` covers the pricing pack only.
+2. Two specialists run in parallel, one per domain pack: `pricing` and `positioning_seo`. The built-in demo replay, used when the live keys are not set, covers the pricing pack only.
 3. The progress log names each step: `started`, `search`, `fetch`, `claim`, `verified`,
    `dropped`, `error`, `done`.
 4. The battlecard groups claims by domain. Each claim is marked `[verified]` or `[unverified]`
@@ -192,8 +192,9 @@ sequenceDiagram
   `[unverified]`, with its note.
 - **Storage.** One `runs` table: `id, created_at, subject, rival, category, status, battlecard`
   (JSON), `events` (JSON) (`src/receipts/db/schema.py`).
-- **Wiring status.** On current `main`, the API and UI serve the built-in demo replay. The live
-  wiring (real Claude, Keenable and Neon behind the same seams) is Wave 2, issue #19.
+- **Wiring.** With `ANTHROPIC_API_KEY` and `KEENABLE_API_KEY` set, the API and UI run the live
+  service: Claude, Keenable, Neon and Mellea repairs (`build_live_service` in
+  `src/receipts/api/wiring.py`). Without them, they serve the built-in demo replay.
 
 </details>
 
@@ -208,19 +209,23 @@ lower-cased, whitespace collapsed.
 | Quote | URL was not fetched this run | not verified (dropped) | `dropped: url not fetched this run` |
 | Quote | Page fetch failed | not verified | `fetch failed` (not "false") |
 | Quote | Quote is an exact substring of the page | `quote_exact` | none |
-| Quote | Fuzzy match: `rapidfuzz` `partial_ratio` at least 90, the match covers the whole quote, and every number in the quote is on the page | `quote_fuzzy` | `fuzzy match: partial_ratio=… >= 90` |
+| Quote | Exact substring, but an edge of the match cuts a page number (`$19` inside `$199`) | falls through to the fuzzy check | |
+| Quote | Fuzzy match: `rapidfuzz` `partial_ratio` at least 90, the match covers the whole quote, and each number in the quote is the page's number at the same place in the match | `quote_fuzzy` | `fuzzy match: partial_ratio=… >= 90` |
+| Quote | The quote is on the page, but a value in the claim (a price, a `%`, a decimal or a thousands number) is not in the quote | not verified | `claim numbers not in quote: …` |
 | Quote | Anything else | not verified | `quote not found on page: …` with the reason |
 | Search | Same query, rank and URL as a row logged this run | `search_log` | none |
 | Search | Query was never searched this run | not verified (dropped) | `dropped: search query not logged this run` |
 | Search | Query logged, but no row with that rank and URL | not verified | `no logged row for query at rank N with that url` |
 
-**The number rule, in plain words.** A one-digit price change still scores about 97 on fuzzy
-matching, so a fuzzy match also needs every number in the quote (with its currency sign or `%`)
-to appear on the page as a whole number. Commas that separate thousands are ignored, so
-`1,000` equals `1000`; a decimal comma such as `19,99` is kept.
+**The number rules, in plain words** (PR #35):
+- **Why fuzzy needs a number rule:** a one-digit price change still scores about 97 on fuzzy matching. So each number in the quote, with its currency sign or `%`, must be the page's number at the same place in the match. A quote that swaps or repeats the page's prices fails.
+- **The claim has to match its quote:** every price, percentage, decimal or thousands number in the claim must also be in its quote. A quote proves only what it says.
+- **Equivalences:** commas that separate thousands are ignored, so `1,000` equals `1000` (a decimal comma such as `19,99` is kept). `$20.00` equals `$20`, and `20 percent` equals `20%`.
 
-The outputs below come from running `verify_claim` on each case at commit `45bf333`; the same
-cases are in `tests/test_verify.py`.
+The rules have known limits, tracked in issue #45. Plan labels next to a price are not checked. Bare-integer counts are not checked. A quote whose page text runs past the score window can be rejected although it is true.
+
+The outputs below come from running `verify_claim` on each case at commit `d719360`; the same
+cases are in `tests/test_verify.py` and `tests/test_verify_claim_numbers.py`.
 
 <details>
 <summary><code>$19.99</code> quoted, page says <code>$19.49</code>: not verified</summary>
@@ -229,7 +234,7 @@ cases are in `tests/test_verify.py`.
 page:  Basic is $19.49 per seat per month, billed yearly. Enterprise is $99 per seat.
 quote: Basic is $19.99 per seat per month, billed yearly
 -> verified=False
-   note: quote not found on page: numbers differ ($19.99 not on page; partial_ratio=98.0)
+   note: quote not found on page: numbers differ (quote has $19.99; page has $19.49 there; partial_ratio=98.0)
 ```
 
 </details>
@@ -287,6 +292,34 @@ quote: The Team plan is 14 dollars per seat per month - billed yearly.
 
 </details>
 
+<details>
+<summary>Claim price not in its quote: not verified</summary>
+
+```text
+page:  Build plan. $20 of agent usage included each month at API rates. Cancel any time.
+quote: $20 of agent usage included each month at API rates
+claim: Warp Build is $18/month on the annual plan and includes $20 of agent usage per month at API rates
+-> verified=False
+   note: claim numbers not in quote: $18
+```
+
+The quote is on the page, but it does not carry the claim's `$18`. This is the live failure that
+issue #33 reported.
+
+</details>
+
+<details>
+<summary>Prices swapped inside the quote: not verified</summary>
+
+```text
+page:  Pro yearly: $199. Pro monthly: $19.
+quote: Pro yearly: $19. Pro monthly: $199.
+-> verified=False
+   note: quote not found on page: numbers differ (quote has $19, $199; page has $199, $19 there; partial_ratio=97.1)
+```
+
+</details>
+
 ## Add a specialist in one YAML file
 
 A specialist is configuration, not code. This is `src/receipts/packs/pricing.yaml`, with the
@@ -328,7 +361,7 @@ Reading runs needs no passcode; starting one does.
 ```bash
 BASE=https://receipts-h745.onrender.com
 
-# Start a run: 202 with {"run_id": "run-demo-0001"}. Until #19 merges this is the demo replay: any subject and rival return the Acme vs Zeta battlecard
+# Start a run: 202 with {"run_id": "run-…"}. The deployed app runs a live comparison; without the live keys, any subject and rival return the Acme vs Zeta demo battlecard
 curl -sS -X POST "$BASE/api/runs" \
   -H "Content-Type: application/json" \
   -H "X-Demo-Passcode: $DEMO_PASSCODE" \
@@ -447,13 +480,21 @@ it as a rule (AGENTS.md section 9).
 ## Demo: Mel vs Warp
 
 The demo compares **Mel** (the agentic terminal this hackathon promotes, per the design spec) with **Warp**, category
-**agentic terminal**. Once live wiring (#19) merges, both packs run on every comparison; on `main` today the app replays the scripted Acme vs Zeta demo instead.
+**agentic terminal**. Both packs run on every comparison.
 
-| Measure | Result |
-|---|---|
-| Verified / total claims | measured after submission |
-| Claims not verified | measured after submission |
-| Wall time | measured after submission |
+**The runs.** Live, on 2026-11-15, with the code now on `main`. Each used a temporary SQLite file instead of Neon, two pairs with Mellea repairs off and then on (PR #46):
+
+| Run | Repairs | Verified / total | Not verified | Wall time |
+|---|---|---|---|---|
+| `run-871cfc9ce402` | off | 15 / 22 | 7 | 27.5 s |
+| `run-c51fde6c2232` | on (7 of 7 failing pricing claims repaired) | 22 / 22 | 0 | 19.5 s |
+| `run-a4a06b506b75` | off | 16 / 23 | 7 | 19.7 s |
+| `run-af0e77c1af92` | on (7 of 7 repaired) | 22 / 22 | 0 | 21.1 s |
+
+**Reading the numbers.**
+- **Why claims failed:** in a separate repairs-off run, every failure was a claim price not in its quote (`claim numbers not in quote`), for example "Warp Build is $18/month…".
+- **What "repaired" means:** the verifier accepted the rewrite. Rewrites can carry plan names their quotes do not show, a known limit tracked in issue #45. In one repairs-on run, at least 6 of the 8 verified pricing claims did.
+- **Sample:** two pairs of one subject and rival. The model is not deterministic.
 
 ## How it was built at the Miami AI Hackathon
 
@@ -485,11 +526,26 @@ flowchart LR
 
 **Credits.**
 
-- **Claude Code** built Wave 0 and lanes L1 to L5, each in its own worktree.
-- **Mellea** (IBM, Apache 2.0, a hackathon sponsor) runs the repair loop for claims that fail
-  the verifier (ADR-0007).
-- **Mel** drafted the demo script, the first architecture diagram (corrected against the code for
-  this README) and the submission draft, running on an OpenAI key (ADR-0004, Mel row).
+<p align="center"><img src="docs/assets/miami-ai-hackathon.jpg" alt="The Miami AI Hackathon screen, &quot;mel × ElevenLabs presents: Miami AI Hackathon, November 14, 2026&quot;, beside a Miami Dade College podium" width="420"></p>
+
+- **The event.** Built at the [**Miami AI Hackathon**](https://luma.com/ogmxu9ya) (November 14, 2026),
+  presented by [Mel](https://openmel.dev) × [ElevenLabs](https://elevenlabs.io), organised by
+  [Agentic Day](https://www.agenticdaysummit.com), and hosted at
+  [Miami Dade College](https://www.mdc.edu) (Wolfson Campus).
+- **Sponsors in the product.**
+  - [**ElevenLabs**](https://elevenlabs.io) narrates the demo video and runs the "Ask Receipts" voice agent on the landing page.
+  - [**Mellea**](https://mellea.ai) (IBM, Apache 2.0) runs the repair loop for claims that fail the verifier (ADR-0007).
+  - **Mel** drafted the demo script, the first architecture diagram (corrected against the code for this README) and the submission draft, running on an OpenAI key (ADR-0004, Mel row). It also built the UI's battlecard status colours (#40, PR #47).
+- **Built on.**
+  - [Anthropic](https://www.anthropic.com)'s **Claude** (`claude-sonnet-5-5`), through [LangChain](https://www.langchain.com).
+  - [**Keenable**](https://www.keenable.ai) for web search and fetch (`langchain-keenable`).
+  - [Pydantic](https://pydantic.dev) for every contract and the settings.
+  - [FastAPI](https://fastapi.tiangolo.com) and [Gradio](https://www.gradio.app) for the app.
+  - [RapidFuzz](https://github.com/rapidfuzz/RapidFuzz) for the verifier's fuzzy match.
+  - [LiteLLM](https://github.com/BerriAI/litellm) as Mellea's client for Anthropic.
+  - [SQLAlchemy](https://www.sqlalchemy.org) on [Neon](https://neon.tech) Postgres.
+  - Hosting on [Render](https://render.com) (the app) and [Vercel](https://vercel.com) (the landing page).
+- **Built with.** **Claude Code** built Wave 0 and lanes L1 to L5, each in its own worktree, plus the live wiring, the landing page and this README.
 
 Engineering standard: [`AGENTS.md`](AGENTS.md). Decisions: [`docs/adr/`](docs/adr/). Design spec:
 [`docs/superpowers/specs/2026-11-14-receipts-design.md`](docs/superpowers/specs/2026-11-14-receipts-design.md).
