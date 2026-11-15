@@ -55,7 +55,8 @@ NOTE_FETCH_FAILED = "fetch failed"
 
 _CODE_FENCE = re.compile(r"```[^\S\n]*")  # the fence itself; the info string and body stay
 _BACKTICK = re.compile(r"`")
-_IMAGE_OR_LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")  # [text](url) and ![alt](url) -> text
+_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")  # ![alt](src) -> alt; runs before _LINK so that
+_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")  # [![alt](src)](url) -> [alt](url) -> alt in one pass
 _HEADING = re.compile(r"^[ \t]*#{1,6}[ \t]+", re.MULTILINE)
 _BULLET = re.compile(r"^[ \t]*(?:[-*+]|\d+\.)[ \t]+", re.MULTILINE)
 _STAR = re.compile(r"\*")
@@ -70,15 +71,17 @@ _DASHES = str.maketrans({"–": "-", "—": "-"})
 def normalize(text: str) -> str:
     """Canonical text for matching: markdown stripped, lower-cased, whitespace collapsed.
 
-    Steps, in order: code fences and backticks removed (their contents kept); `[text](url)` and
-    `![alt](url)` reduced to the text; heading marks and list bullets at line starts removed;
+    Steps, in order: code fences and backticks removed (their contents kept); `![alt](src)` then
+    `[text](url)` reduced to the text (image first, so a linked image `[![alt](src)](url)`
+    becomes `alt` in one pass); heading marks and list bullets at line starts removed;
     `*` removed everywhere and `_` where it wraps a word (`snake_case` survives); curly quotes
     unified to `'` and `"`; en and em dashes unified to `-`; lower-cased; every whitespace run
     collapsed to one space and the ends stripped. Deterministic and idempotent.
     """
     out = _CODE_FENCE.sub("", text)
     out = _BACKTICK.sub("", out)
-    out = _IMAGE_OR_LINK.sub(r"\1", out)
+    out = _IMAGE.sub(r"\1", out)
+    out = _LINK.sub(r"\1", out)
     out = _HEADING.sub("", out)
     out = _BULLET.sub("", out)
     out = _STAR.sub("", out)

@@ -63,6 +63,7 @@ def search_claim(query: str, rank: int, url: str, ts: datetime = T0) -> Claim:
         ("**bold** and *em* and __under__ and _em_", "bold and em and under and em"),
         ("[link text](https://x.example/a) tail", "link text tail"),
         ("![alt text](https://x.example/i.png)", "alt text"),
+        ("[![Logo alt](https://x.example/l.png)](https://x.example/) tail", "logo alt tail"),
         ("# Heading\n## Sub\ntext", "heading sub text"),
         ("- one\n* two\n+ three\n1. four", "one two three four"),
         ("```py\nx = 1\n```\nand `inline`", "py x = 1 and inline"),
@@ -76,7 +77,17 @@ def test_normalize_rules(raw: str, expected: str) -> None:
     assert normalize(raw) == expected
 
 
-@pytest.mark.parametrize("raw", [MD_PAGE, data.RIVAL_PAGE, "**a** [b](c) — ‘d’", "", "   "])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        MD_PAGE,
+        data.RIVAL_PAGE,
+        "**a** [b](c) — ‘d’",
+        "[![Logo alt](https://x.example/l.png)](https://x.example/)",
+        "",
+        "   ",
+    ],
+)
 def test_normalize_idempotent(raw: str) -> None:
     once = normalize(raw)
     assert normalize(once) == once
