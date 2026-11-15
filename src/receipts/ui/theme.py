@@ -217,7 +217,7 @@ gradio-app {{
 }}
 .card a {{ color: {TEXT}; text-decoration: underline; text-underline-offset: 3px; }}
 .card a:hover {{ color: {TEXT_SECONDARY}; }}
-/* The only colours, for status marks. `render.py` emits plain `[verified]` text today. */
+/* The only colours, for status marks; render.py wraps battlecard status marks in these classes. */
 .status-verified {{ color: {VERIFIED}; }}
 .status-dropped {{ color: {DROPPED}; }}
 footer {{ filter: grayscale(1); opacity: 0.6; }}

@@ -108,7 +108,7 @@ def test_buttons_are_monochrome_in_light_and_dark_mode() -> None:
 
 def test_the_only_chromatic_colours_are_the_two_status_colours() -> None:
     theme_values = [v for k, v in vars(THEME).items() if isinstance(v, str) and k != "name"]
-    found = {c.lower() for text in [*theme_values, CSS] for c in HEX.findall(text)}
+    found = {_expand_3_to_6_hex(c) for text in [*theme_values, CSS] for c in _css_hex_colours(text)}
     chromatic = {c for c in found if not _is_grey(c)}
     assert chromatic <= STATUS_COLOURS, f"unexpected colours: {sorted(chromatic - STATUS_COLOURS)}"
     rgb = {m for text in [*theme_values, CSS] for m in RGB.findall(text)}
@@ -165,7 +165,8 @@ def _theme_colour(attr: str) -> str:
 
 def test_css_guards_no_imports_and_no_external_urls() -> None:
     assert "@import" not in CSS
-    assert "url(http" not in CSS
+    assert "@font-face" not in CSS
+    assert re.search(r"url\(\s*['\"]?\s*(https?:)?//", CSS, flags=re.IGNORECASE) is None
 
 
 def test_tagline_constant_matches_the_product_copy() -> None:
@@ -176,22 +177,182 @@ def _css_hex_colours(text: str) -> set[str]:
     return {m.group(0).lower() for m in re.finditer(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\b", text)}
 
 
+def _expand_3_to_6_hex(colour: str) -> str:
+    c = colour.lower()
+    if re.fullmatch(r"#[0-9a-f]{3}", c):
+        return "#" + "".join(ch * 2 for ch in c[1:])
+    return c
+
+
 def _theme_string_values() -> list[str]:
     return [v for k, v in vars(THEME).items() if isinstance(v, str) and k != "name"]
 
 
-def test_theme_colours_use_only_hex_literals_no_named_no_hsl() -> None:
-    theme_values = _theme_string_values()
-    raw = "\n".join([*theme_values, CSS]).lower()
+CSS_NAMED_COLOURS = {
+    "aliceblue",
+    "antiquewhite",
+    "aqua",
+    "aquamarine",
+    "azure",
+    "beige",
+    "bisque",
+    "black",
+    "blanchedalmond",
+    "blue",
+    "blueviolet",
+    "brown",
+    "burlywood",
+    "cadetblue",
+    "chartreuse",
+    "chocolate",
+    "coral",
+    "cornflowerblue",
+    "cornsilk",
+    "crimson",
+    "cyan",
+    "darkblue",
+    "darkcyan",
+    "darkgoldenrod",
+    "darkgray",
+    "darkgreen",
+    "darkgrey",
+    "darkkhaki",
+    "darkmagenta",
+    "darkolivegreen",
+    "darkorange",
+    "darkorchid",
+    "darkred",
+    "darksalmon",
+    "darkseagreen",
+    "darkslateblue",
+    "darkslategray",
+    "darkslategrey",
+    "darkturquoise",
+    "darkviolet",
+    "deeppink",
+    "deepskyblue",
+    "dimgray",
+    "dimgrey",
+    "dodgerblue",
+    "firebrick",
+    "floralwhite",
+    "forestgreen",
+    "fuchsia",
+    "gainsboro",
+    "ghostwhite",
+    "gold",
+    "goldenrod",
+    "gray",
+    "green",
+    "greenyellow",
+    "grey",
+    "honeydew",
+    "hotpink",
+    "indianred",
+    "indigo",
+    "ivory",
+    "khaki",
+    "lavender",
+    "lavenderblush",
+    "lawngreen",
+    "lemonchiffon",
+    "lightblue",
+    "lightcoral",
+    "lightcyan",
+    "lightgoldenrodyellow",
+    "lightgray",
+    "lightgreen",
+    "lightgrey",
+    "lightpink",
+    "lightsalmon",
+    "lightseagreen",
+    "lightskyblue",
+    "lightslategray",
+    "lightslategrey",
+    "lightsteelblue",
+    "lightyellow",
+    "lime",
+    "limegreen",
+    "linen",
+    "magenta",
+    "maroon",
+    "mediumaquamarine",
+    "mediumblue",
+    "mediumorchid",
+    "mediumpurple",
+    "mediumseagreen",
+    "mediumslateblue",
+    "mediumspringgreen",
+    "mediumturquoise",
+    "mediumvioletred",
+    "midnightblue",
+    "mintcream",
+    "mistyrose",
+    "moccasin",
+    "navajowhite",
+    "navy",
+    "oldlace",
+    "olive",
+    "olivedrab",
+    "orange",
+    "orangered",
+    "orchid",
+    "palegoldenrod",
+    "palegreen",
+    "paleturquoise",
+    "palevioletred",
+    "papayawhip",
+    "peachpuff",
+    "peru",
+    "pink",
+    "plum",
+    "powderblue",
+    "purple",
+    "rebeccapurple",
+    "red",
+    "rosybrown",
+    "royalblue",
+    "saddlebrown",
+    "salmon",
+    "sandybrown",
+    "seagreen",
+    "seashell",
+    "sienna",
+    "silver",
+    "skyblue",
+    "slateblue",
+    "slategray",
+    "slategrey",
+    "snow",
+    "springgreen",
+    "steelblue",
+    "tan",
+    "teal",
+    "thistle",
+    "tomato",
+    "turquoise",
+    "violet",
+    "wheat",
+    "white",
+    "whitesmoke",
+    "yellow",
+    "yellowgreen",
+}
 
-    # Gradio's theme injects svg data URIs (checkbox/radio icons) that include fill='white'.
-    # That's not a CSS colour in our theme and cannot be made hex without reimplementing icons.
-    # Filter those out so this test focuses on actual CSS colour tokens.
+
+def test_theme_colours_have_no_named_tokens_and_no_hsl_or_hsla() -> None:
+    theme_values = [str(v).strip().lower() for v in _theme_string_values()]
+    named_theme = [v for v in theme_values if v in CSS_NAMED_COLOURS]
+    assert named_theme == [], f"named theme colours found: {sorted(set(named_theme))}"
+
+    raw = "\n".join([*theme_values, CSS]).lower()
     scrubbed = re.sub(r"url\(\"data:image/svg\+xml,.*?\"\)", "", raw)
-    css_only = "\n".join(line for line in scrubbed.splitlines() if ":" in line)
-    named = re.findall(r"\b(?:white|black|gray|grey|red|green|blue)\b", css_only)
-    assert named == [], f"named colours found: {sorted(set(named))}"
-    assert "hsl(" not in raw
+
+    css_named = re.findall(r"\b[a-z]+\b", scrubbed)
+    offenders = sorted({tok for tok in css_named if tok in CSS_NAMED_COLOURS})
+    assert offenders == [], f"named CSS colours found: {offenders}"
+
+    assert re.search(r"hsla?\(", scrubbed) is None
 
 
 def test_all_hex_colours_are_6_digit_or_3_digit_only_no_4_or_8_digit_alpha() -> None:
@@ -209,3 +370,8 @@ def test_wcag_contrast_for_secondary_text_and_focus_border_is_at_least_4_5_to_1(
 
     assert _contrast_ratio(secondary, bg) >= 4.5
     assert _contrast_ratio(focus, bg) >= 4.5
+
+
+def test_status_class_rules_are_present_with_expected_colours() -> None:
+    assert ".status-verified { color: #34d399; }" in CSS
+    assert ".status-dropped { color: #f87171; }" in CSS

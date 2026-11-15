@@ -20,10 +20,8 @@ KIND_MARKERS: dict[str, str] = {
     "search": "acme widgets pricing",
     "fetch": "https://acme-widgets.example/pricing",
     "claim": "Acme starts at 9 dollars",
-    "verified": '<span class="status-verified">[verified]</span> quote_exact',
-    "dropped": (
-        '<span class="status-dropped">[dropped]</span> dropped (quote not found on fetched page)'
-    ),
+    "verified": "quote_exact",
+    "dropped": "dropped (quote not found on fetched page)",
     "error": "search timed out",
     "done": "2 of 3 verified",
 }
@@ -37,6 +35,7 @@ def test_render_event_line_is_kind_specific_for_every_kind(sample_events: list[R
         assert line.strip(), f"empty line for {event.kind}"
         assert "\n" not in line.strip(), f"{event.kind} rendered more than one line"
         assert event.kind in line, f"{event.kind!r} not named in {line!r}"
+        assert "<span" not in line, f"event line leaked HTML span: {line!r}"
         assert KIND_MARKERS[event.kind] in line, f"{event.kind}: {line!r}"
 
 
@@ -67,6 +66,7 @@ def test_render_battlecard_counts_rows_and_receipts(sample_claims: list[Claim]) 
     assert "zeta gadgets pricing" in md and "#1" in md
     # one verified marker per verified claim, one unverified marker for the rest
     assert md.count('<span class="status-verified">[verified]</span>') == 2
+    assert md.count('<span class="status-dropped">[unverified]</span>') == 1
     assert md.count("[unverified]") == 1
     assert "## pricing" in md  # grouped by domain
 
