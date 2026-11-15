@@ -15,7 +15,8 @@ The product: a founder/marketer/sales rep types "Us vs. Rival" and gets a one-pa
 - **Landing page (must ship, lane L6; Jay's decision 2026-11-14):** a one-page site built from the Aceternity "cryptgen" template (Next.js 16), kept in its own repository outside this one, using only its hero and features sections, deployed on Vercel and linking to the Render app. Before it is published, confirm the Aceternity license allows a public deployment, and record the answer in ADR-0005. Its fake testimonials, pricing and logo cloud are cut, because invented social proof contradicts a product about receipts.
 - **Stretch (only if ahead at H30):** "what changed since last run" diff; adding a 5th pack live during the demo.
 - **UI look (L5 brief):** the dark spotlight/glow style of that template, done with a Gradio theme and custom CSS. No Node build.
-- **Non-goals:** user accounts, scheduling, scraping behind logins, PDF export, voice.
+- **Non-goals:** user accounts, scheduling, scraping behind logins, PDF export.
+- **Voice (added 2026-11-15, Jay's decision; ElevenLabs was a hackathon sponsor):** an ElevenLabs-narrated demo video, and "Ask Receipts", an ElevenLabs Conversational AI agent embedded on the landing page that answers only from stored, verified battlecards through the app's read-only API (`GET /api/runs`, `GET /api/runs/{id}`). It never states an unverified claim as fact. ADR-0004 lists what ElevenLabs receives.
 - **Anti-goals:** any claim shown without a receipt; a demo that hangs >2 min or dies on a rate limit; specialists written as copy-pasted code instead of config; secrets in git; strangers burning Jay's API budget on the public URL.
 
 ## Architecture

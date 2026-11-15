@@ -29,6 +29,7 @@ Added 2026-11-14 (issue #1). Each row says what leaves the repo or the running a
 | OpenAI Codex CLI (approved vendor) | Builds lane L4 (`db/`, `api/`) | Repository code |
 | FAL | Generates the submission's OG image (the link-preview picture) via the Skillry `bs-duolingo-style-og` skill | One headline, the product name and a one-line context; no code or run data |
 | Skillry | Distributes that skill | Nothing from this repo; installs files under `~/.claude/skills` |
+| ElevenLabs | Narrates the demo video; hosts the "Ask Receipts" voice agent and its landing-page widget (added 2026-11-15) | The narration script text; visitors' voice audio and transcripts when they talk to the agent; the battlecard JSON its two read-only tools fetch from the app's public API. The agent's LLM, run through ElevenLabs, is Claude Haiku 5.5 with backups Claude Sonnet 5.5 then GPT-5.4-mini, all from approved vendors; ElevenLabs' default model (DeepSeek) was replaced because DeepSeek is not approved |
 
 ## Consequences
 
