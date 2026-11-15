@@ -1,0 +1,103 @@
+[
+  {
+    "domain": "pricing",
+    "about": "subject",
+    "text": "Acme Widgets charges 9 dollars per seat per month for its Team plan.",
+    "receipt": {
+      "kind": "quote",
+      "url": "https://acme-widgets.example/pricing",
+      "quote": "Team costs 9 dollars per seat per month, billed monthly."
+    },
+    "verified": true,
+    "verify_method": "quote_exact"
+  },
+  {
+    "domain": "pricing",
+    "about": "subject",
+    "text": "Acme Widgets has a free Starter plan for up to 3 users.",
+    "receipt": {
+      "kind": "quote",
+      "url": "https://acme-widgets.example/pricing",
+      "quote": "Starter is free for up to 3 users."
+    },
+    "verified": true,
+    "verify_method": "quote_exact"
+  },
+  {
+    "domain": "pricing",
+    "about": "rival",
+    "text": "Bolt Gadgets Basic is 12 dollars per seat per month, billed yearly.",
+    "receipt": {
+      "kind": "quote",
+      "url": "https://bolt-gadgets.example/plans",
+      "quote": "Basic is 12 dollars per seat per month, billed yearly."
+    },
+    "verified": true,
+    "verify_method": "quote_exact"
+  },
+  {
+    "domain": "pricing",
+    "about": "rival",
+    "text": "Bolt Gadgets offers a permanent free plan.",
+    "receipt": {
+      "kind": "quote",
+      "url": "https://bolt-gadgets.example/plans",
+      "quote": "Bolt Gadgets offers a free plan for up to 5 users."
+    },
+    "verified": false,
+    "verify_method": "quote_exact",
+    "verify_note": "Quote does not appear in the page text; the page says there is no free plan."
+  },
+  {
+    "domain": "positioning_seo",
+    "about": "subject",
+    "text": "Acme Widgets targets small support teams.",
+    "receipt": {
+      "kind": "quote",
+      "url": "https://acme-widgets.example/",
+      "quote": "Built for small support teams who need shared calendars without the setup."
+    },
+    "verified": true,
+    "verify_method": "quote_exact"
+  },
+  {
+    "domain": "positioning_seo",
+    "about": "rival",
+    "text": "Bolt Gadgets positions itself as an enterprise platform.",
+    "receipt": {
+      "kind": "quote",
+      "url": "https://bolt-gadgets.example/",
+      "quote": "The enterprise scheduling platform."
+    },
+    "verified": true,
+    "verify_method": "quote_exact"
+  },
+  {
+    "domain": "positioning_seo",
+    "about": "subject",
+    "text": "Acme Widgets ranks 2 for the query best team scheduling software.",
+    "receipt": {
+      "kind": "search",
+      "query": "best team scheduling software",
+      "rank": 2,
+      "url": "https://acme-widgets.example/",
+      "ts": "2026-11-14T12:00:00Z"
+    },
+    "verified": true,
+    "verify_method": "search_log"
+  },
+  {
+    "domain": "positioning_seo",
+    "about": "rival",
+    "text": "Bolt Gadgets ranks 4 for the query best team scheduling software.",
+    "receipt": {
+      "kind": "search",
+      "query": "best team scheduling software",
+      "rank": 4,
+      "url": "https://bolt-gadgets.example/",
+      "ts": "2026-11-14T12:00:00Z"
+    },
+    "verified": true,
+    "verify_method": "search_log"
+  }
+]
