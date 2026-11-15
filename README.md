@@ -16,7 +16,12 @@ checked against the web page or search result it came from.
 
 </div>
 
-> [!NOTE]
+> [!IMPORTANT]
+> **Status on `main`:** the live app and the API replay one built-in, scripted demo run
+> (invented companies Acme Widgets vs Zeta Gadgets, pricing pack only). Whatever subject and
+> rival you enter, you get that replay. Live runs with Claude, Keenable and Neon are Wave 2,
+> issue #19, and are not merged yet.
+>
 > The live app runs on Render's free tier, which sleeps after 15 minutes idle. The first load can
 > take about a minute (Render's free-tier docs, cited in ADR-0005).
 
@@ -47,7 +52,7 @@ failed, the reason.
 ## What you see in 30 seconds
 
 1. Type a **subject** (you), a **rival** and an optional **category**, plus the demo passcode.
-2. Two specialists run in parallel, one per domain pack: `pricing` and `positioning_seo`.
+2. With live wiring (issue #19, not merged), two specialists run in parallel, one per domain pack: `pricing` and `positioning_seo`. The demo replay on `main` covers the pricing pack only.
 3. The progress log names each step: `started`, `search`, `fetch`, `claim`, `verified`,
    `dropped`, `error`, `done`.
 4. The battlecard groups claims by domain. Each claim is marked `[verified]` or `[unverified]`
@@ -69,7 +74,7 @@ failed, the reason.
 ```
 
 Produced by `receipts.ui.render.render_event_line` over `receipts.ui.demo.demo_events()`. The app
-replays this script whenever no live run service is wired in.
+replays this script whenever no live run service is wired in. The script is abridged: it shows one of its three claims, so the done line does not match the events above it.
 
 </details>
 
@@ -317,7 +322,7 @@ Reading runs needs no passcode; starting one does.
 ```bash
 BASE=https://receipts-h745.onrender.com
 
-# Start a run: 202 with {"run_id": "..."}
+# Start a run: 202 with {"run_id": "run-demo-0001"}. Until #19 merges this is the demo replay: any subject and rival return the Acme vs Zeta battlecard
 curl -sS -X POST "$BASE/api/runs" \
   -H "Content-Type: application/json" \
   -H "X-Demo-Passcode: $DEMO_PASSCODE" \
@@ -435,8 +440,8 @@ it as a rule (AGENTS.md section 9).
 
 ## Demo: Mel vs Warp
 
-The demo compares **Mel** (the agentic terminal this hackathon promotes) with **Warp**, category
-**agentic terminal**. Both packs run on every comparison.
+The demo compares **Mel** (the agentic terminal this hackathon promotes, per the design spec) with **Warp**, category
+**agentic terminal**. Once live wiring (#19) merges, both packs run on every comparison; on `main` today the app replays the scripted Acme vs Zeta demo instead.
 
 | Measure | Result |
 |---|---|
@@ -476,7 +481,7 @@ flowchart LR
 
 - **Claude Code** built Wave 0 and lanes L1 to L5, each in its own worktree.
 - **Mel** drafted the demo script, the first architecture diagram (corrected against the code for
-  this README) and the submission draft, running on an OpenAI key.
+  this README) and the submission draft, running on an OpenAI key (ADR-0004, Mel row).
 
 Engineering standard: [`AGENTS.md`](AGENTS.md). Decisions: [`docs/adr/`](docs/adr/). Design spec:
 [`docs/superpowers/specs/2026-11-14-receipts-design.md`](docs/superpowers/specs/2026-11-14-receipts-design.md).
