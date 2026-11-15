@@ -75,6 +75,6 @@ async def test_one_live_comparison_runs_end_to_end(tmp_path: Path) -> None:
     assert card is not None and card.run_id == run_id
     summaries = await service.list()
     assert [s.run_id for s in summaries] == [run_id]
-    assert summaries[0].status in ("done", "error")
+    assert summaries[0].status == "done", f"run ended {summaries[0].status}"
 
     print(f"\nLIVE RUN {run_id} {done.verified_count}/{done.total_count} {wall_s:.1f}s")

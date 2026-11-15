@@ -11,6 +11,10 @@ Shape mapping (spec: a failed fetch is not a false claim):
 - fetch: `{url, title, content, ...}` becomes `FetchedPage(ok=True)` with `content` as the text;
   anything else (error string, missing or non-text `content`, exception) is `FetchedPage(ok=False)`
   with empty text.
+- every failure is logged at WARNING (the exception type, or the tool's error text with the key
+  redacted), so a revoked key or a rate limit is visible and not mistaken for "no results".
+- a blank or whitespace key is refused: `langchain_keenable` strips it to None and would quietly
+  use the keyless public endpoint, which the spec forbids.
 
 Timestamps come from an injected clock defaulting to `datetime.now(UTC)`.
 
@@ -20,14 +24,21 @@ The real model factory is L1's `default_model_factory` (already lazy); it is re-
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, SecretStr, TypeAdapter
+import logging
+
+from pydantic import BaseModel, ConfigDict, SecretStr, TypeAdapter, ValidationError
 
 from receipts.contracts import FetchedPage, SearchResult
 from receipts.harness.specialist import Clock, default_model_factory, utc_now
+from receipts.settings import MissingSettingError
 
 __all__ = ["KeenableFetchClient", "KeenableSearchClient", "live_model_factory"]
 
 live_model_factory = default_model_factory
+
+logger = logging.getLogger(__name__)
+
+_ERROR_TEXT_CHARS = 200
 
 
 class _SearchItem(BaseModel):
@@ -46,11 +57,25 @@ _SEARCH_ITEMS: TypeAdapter[list[_SearchItem]] = TypeAdapter(list[_SearchItem])
 _FETCH_BODY: TypeAdapter[_FetchBody] = TypeAdapter(_FetchBody)
 
 
+def _secret_key(api_key: str) -> SecretStr:
+    if not api_key.strip():
+        raise MissingSettingError("KEENABLE_API_KEY")
+    return SecretStr(api_key)
+
+
+def _describe(raw: object, key: SecretStr) -> str:
+    """What came back instead of a usable body: the tool's error text (key redacted, cut short)
+    or just the type name, so the log names the failure without echoing page content."""
+    if isinstance(raw, str):
+        return repr(raw.replace(key.get_secret_value(), "***")[:_ERROR_TEXT_CHARS])
+    return type(raw).__name__
+
+
 class KeenableSearchClient:
     """`SearchClient` over `langchain_keenable.KeenableSearch`."""
 
     def __init__(self, api_key: str, *, clock: Clock = utc_now, timeout_s: int = 30) -> None:
-        self._api_key = SecretStr(api_key)
+        self._api_key = _secret_key(api_key)
         self._clock = clock
         self._timeout_s = timeout_s
 
@@ -64,8 +89,16 @@ class KeenableSearchClient:
     def search(self, query: str) -> list[SearchResult]:
         ts = self._clock()
         try:
-            items = _SEARCH_ITEMS.validate_python(self._invoke(query))
-        except Exception:
+            raw = self._invoke(query)
+        except Exception as exc:
+            logger.warning("keenable search raised %s", type(exc).__name__)
+            return []
+        try:
+            items = _SEARCH_ITEMS.validate_python(raw)
+        except ValidationError:
+            logger.warning(
+                "keenable search returned %s, not a result list", _describe(raw, self._api_key)
+            )
             return []
         return [
             SearchResult(
@@ -85,7 +118,7 @@ class KeenableFetchClient:
     """`FetchClient` over `langchain_keenable.KeenableFetch`."""
 
     def __init__(self, api_key: str, *, clock: Clock = utc_now, timeout_s: int = 30) -> None:
-        self._api_key = SecretStr(api_key)
+        self._api_key = _secret_key(api_key)
         self._clock = clock
         self._timeout_s = timeout_s
 
@@ -98,8 +131,17 @@ class KeenableFetchClient:
 
     def fetch(self, url: str) -> FetchedPage:
         fetched_at = self._clock()
+        failed = FetchedPage(url=url, text="", fetched_at=fetched_at, ok=False)
         try:
-            body = _FETCH_BODY.validate_python(self._invoke(url))
-        except Exception:
-            return FetchedPage(url=url, text="", fetched_at=fetched_at, ok=False)
+            raw = self._invoke(url)
+        except Exception as exc:
+            logger.warning("keenable fetch raised %s", type(exc).__name__)
+            return failed
+        try:
+            body = _FETCH_BODY.validate_python(raw)
+        except ValidationError:
+            logger.warning(
+                "keenable fetch returned %s, not a page body", _describe(raw, self._api_key)
+            )
+            return failed
         return FetchedPage(url=url, text=body.content, fetched_at=fetched_at, ok=True)

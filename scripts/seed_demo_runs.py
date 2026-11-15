@@ -21,52 +21,78 @@ import time
 import urllib.error
 import urllib.request
 
+from pydantic import TypeAdapter
+
+from receipts.api.models import RunAccepted
+from receipts.contracts import RunSummary
+
 PAIRS: tuple[tuple[str, str, str], ...] = (
     ("Mel", "Warp", "agentic terminal"),
     ("Cursor", "Windsurf", "AI code editor"),
     ("Linear", "Jira", "issue tracker"),
 )
 
+_SUMMARIES: TypeAdapter[list[RunSummary]] = TypeAdapter(list[RunSummary])
+
 
 def _request(
     url: str, *, method: str, body: dict[str, str] | None, headers: dict[str, str]
-) -> dict:
+) -> object:
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
     with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310 (https URL from the CLI)
-        return json.loads(resp.read().decode())
+        loaded: object = json.loads(resp.read().decode())
+        return loaded
 
 
-def _poll_status(base: str, run_id: str) -> dict:
+def _start(base: str, body: dict[str, str], headers: dict[str, str]) -> str:
+    raw = _request(f"{base}/api/runs", method="POST", body=body, headers=headers)
+    return RunAccepted.model_validate(raw).run_id
+
+
+def _poll_status(base: str, run_id: str) -> RunSummary | None:
     """`GET /api/runs` carries the status; `GET /api/runs/{id}` the card once stored."""
-    for row in _request(f"{base}/api/runs", method="GET", body=None, headers={}):
-        if row["run_id"] == run_id:
-            return row
-    return {"status": "running", "verified_count": 0, "total_count": 0}
+    raw = _request(f"{base}/api/runs", method="GET", body=None, headers={})
+    return next((row for row in _SUMMARIES.validate_python(raw) if row.run_id == run_id), None)
+
+
+def _wait(base: str, run_id: str, started: float, timeout_s: float) -> RunSummary | None:
+    row = _poll_status(base, run_id)
+    while (row is None or row.status not in ("done", "error")) and (
+        time.monotonic() - started < timeout_s
+    ):
+        time.sleep(5)
+        row = _poll_status(base, run_id)
+    return row
+
+
+def _seed_one(
+    base: str, pair: tuple[str, str, str], headers: dict[str, str], timeout_s: float
+) -> bool:
+    """One run; True when it ended `done`. A cold Render instance can time out: that is a
+    failed run, reported on one line, not a traceback."""
+    subject, rival, category = pair
+    started = time.monotonic()
+    try:
+        run_id = _start(base, {"subject": subject, "rival": rival, "category": category}, headers)
+        row = _wait(base, run_id, started, timeout_s)
+    except urllib.error.HTTPError as exc:
+        print(f"{subject} vs {rival}: HTTP {exc.code} {exc.read().decode()[:200]}")
+        return False
+    except (urllib.error.URLError, TimeoutError) as exc:
+        print(f"{subject} vs {rival}: {type(exc).__name__}: {exc}")
+        return False
+    wall = time.monotonic() - started
+    if row is None:
+        print(f"{run_id} not listed after {wall:.1f}s")
+        return False
+    print(f"{row.run_id} {row.verified_count}/{row.total_count} {wall:.1f}s {row.status}")
+    return row.status == "done"
 
 
 def seed_via_api(base: str, n: int, passcode: str, timeout_s: float) -> int:
     headers = {"Content-Type": "application/json", "X-Demo-Passcode": passcode}
-    failures = 0
-    for subject, rival, category in PAIRS[:n]:
-        started = time.monotonic()
-        body = {"subject": subject, "rival": rival, "category": category}
-        try:
-            run_id = _request(f"{base}/api/runs", method="POST", body=body, headers=headers)[
-                "run_id"
-            ]
-        except urllib.error.HTTPError as exc:
-            print(f"POST /api/runs failed: {exc.code} {exc.read().decode()[:200]}")
-            failures += 1
-            continue
-        row = _poll_status(base, run_id)
-        while row["status"] not in ("done", "error") and time.monotonic() - started < timeout_s:
-            time.sleep(5)
-            row = _poll_status(base, run_id)
-        wall = time.monotonic() - started
-        print(f"{run_id} {row['verified_count']}/{row['total_count']} {wall:.1f}s {row['status']}")
-        failures += row["status"] != "done"
-    return failures
+    return sum(not _seed_one(base, pair, headers, timeout_s) for pair in PAIRS[:n])
 
 
 async def seed_in_process(n: int) -> int:
