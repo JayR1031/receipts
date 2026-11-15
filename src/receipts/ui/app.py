@@ -20,7 +20,6 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 
 import gradio as gr
 from fastapi import FastAPI
-from gradio.themes import Base as BaseTheme
 
 from receipts.contracts import DoneEvent, RunId, RunRequest, RunService
 from receipts.ui.demo import demo_service
@@ -30,33 +29,12 @@ from receipts.ui.render import (
     render_event_line,
     render_history,
 )
+from receipts.ui.theme import CSS, HEADER_HTML, THEME
 
 UI_PATH = "/ui"
 
 # `(request, passcode) -> run_id`. W2 decides whether this goes in-process or over HTTP.
 Starter = Callable[[RunRequest, str], Awaitable[RunId]]
-
-THEME = BaseTheme(primary_hue="emerald", neutral_hue="zinc").set(
-    body_background_fill="*neutral_950",
-    body_background_fill_dark="*neutral_950",
-    body_text_color="*neutral_100",
-    body_text_color_dark="*neutral_100",
-    background_fill_primary="*neutral_900",
-    background_fill_primary_dark="*neutral_900",
-    background_fill_secondary="*neutral_800",
-    background_fill_secondary_dark="*neutral_800",
-    block_background_fill="*neutral_900",
-    block_background_fill_dark="*neutral_900",
-    border_color_primary="*neutral_700",
-    border_color_primary_dark="*neutral_700",
-    input_background_fill="*neutral_800",
-    input_background_fill_dark="*neutral_800",
-)
-CSS = """
-.gradio-container { max-width: 1100px !important; margin: 0 auto; }
-#progress textarea { font-family: var(--font-mono); font-size: 0.85em; }
-.card a { color: var(--primary-400); }
-"""
 
 NO_CARD = "_Run finished but no battlecard was stored._"
 
@@ -140,7 +118,7 @@ def _history_panel(service: RunService, blocks: gr.Blocks) -> None:
 def build_ui(service: RunService, starter: Starter | None = None) -> gr.Blocks:
     """Return the Blocks app. No analytics: the container must make no outbound call."""
     with gr.Blocks(title="Receipts", analytics_enabled=False) as blocks:
-        gr.Markdown("# Receipts\n\nEvery claim carries a receipt.")
+        gr.HTML(HEADER_HTML)
         with gr.Tab("Run"):
             _run_panel(service, starter)
         with gr.Tab("History"):
@@ -157,4 +135,7 @@ def resolve_service(app: FastAPI) -> RunService:
 def mount_ui(app: FastAPI) -> None:
     """Mount the UI at `/ui`. `ssr_mode=False`: no Node in the image."""
     service = resolve_service(app)
-    gr.mount_gradio_app(app, build_ui(service), path=UI_PATH, ssr_mode=False, theme=THEME, css=CSS)
+    starter = getattr(app.state, "run_starter", None)  # W2's passcode-enforcing starter
+    gr.mount_gradio_app(
+        app, build_ui(service, starter=starter), path=UI_PATH, ssr_mode=False, theme=THEME, css=CSS
+    )
