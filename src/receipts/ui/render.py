@@ -87,7 +87,11 @@ def _render_receipt(receipt: Receipt) -> str:
 
 
 def _render_claim(claim: Claim) -> str:
-    marker = "[verified]" if claim.verified else "[unverified]"
+    marker = (
+        '<span class="status-verified">[verified]</span>'
+        if claim.verified
+        else '<span class="status-dropped">[unverified]</span>'
+    )
     note = f" ({claim.verify_note})" if claim.verify_note else ""
     return f"- {marker} **{claim.about}**: {claim.text}{note}  \n  {_render_receipt(claim.receipt)}"
 
