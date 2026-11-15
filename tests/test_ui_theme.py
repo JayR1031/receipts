@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import re
+import struct
 from importlib.resources import files
 
 import gradio as gr
@@ -46,6 +47,8 @@ def test_logo_is_embedded_as_a_png_data_uri_of_the_packaged_asset() -> None:
     decoded = base64.b64decode(LOGO_DATA_URI.removeprefix(DATA_URI_PREFIX), validate=True)
     assert decoded.startswith(PNG_MAGIC)
     assert decoded == _packaged_logo()
+    # IHDR width and height: the header's 142x32 box assumes the owner's 640x144 asset
+    assert struct.unpack(">II", decoded[16:24]) == (640, 144)
 
 
 def test_header_shows_the_logo_with_alt_text_the_tagline_and_the_about_link() -> None:
@@ -84,6 +87,16 @@ def test_no_emerald_primary_hue_remains() -> None:
             assert _is_grey(value), f"{hue}_{shade} is not a grey ({value})"
 
 
+def test_every_variable_has_the_same_value_in_light_and_dark_mode() -> None:
+    values = {k: v for k, v in vars(THEME).items() if isinstance(v, str)}
+    pairs = [k.removesuffix("_dark") for k in values if k.endswith("_dark")]
+    assert pairs, "no _dark variables found"
+    differ = {
+        k: (values[k], values[f"{k}_dark"]) for k in pairs if values[k] != values[f"{k}_dark"]
+    }
+    assert differ == {}
+
+
 def test_buttons_are_monochrome_in_light_and_dark_mode() -> None:
     for suffix in ("", "_dark"):
         assert getattr(THEME, f"button_primary_background_fill{suffix}").lower() == "#ffffff"
@@ -100,3 +113,15 @@ def test_the_only_chromatic_colours_are_the_two_status_colours() -> None:
     assert chromatic <= STATUS_COLOURS, f"unexpected colours: {sorted(chromatic - STATUS_COLOURS)}"
     rgb = {m for text in [*theme_values, CSS] for m in RGB.findall(text)}
     assert all(r == g == b for r, g, b in rgb), f"non-grey rgb() values: {sorted(rgb)}"
+
+
+def test_no_theme_font_is_fetched_from_a_third_party() -> None:
+    """Fonts must not load from Google (or any host): a visitor's IP would go to a third party
+    that ADR-0004 doesn't list. Plain family names resolve locally and fetch nothing."""
+    from gradio.themes import Font
+
+    from receipts.ui.theme import THEME
+
+    fonts = [*THEME._font, *THEME._font_mono]
+    fetched = [f.name for f in fonts if isinstance(f, Font) and f.stylesheet()["url"]]
+    assert fetched == []

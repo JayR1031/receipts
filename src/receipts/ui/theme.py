@@ -21,11 +21,11 @@ import base64
 from importlib.resources import files
 
 from gradio.themes import Base as BaseTheme
-from gradio.themes import GoogleFont
+from gradio.themes import Font
 from gradio.themes.utils.colors import Color
 
 LANDING_URL = "https://receipts-landing-nine.vercel.app"
-TAGLINE = "Every claim shows its receipt."
+TAGLINE = "Every claim carries a receipt."
 LOGO_ALT = "Receipts"
 # The asset is 640x144 (white on transparent); shown 32px tall, so about 142px wide.
 LOGO_HEIGHT_PX = 32
@@ -39,9 +39,8 @@ SURFACE_2 = "#151515"  # inputs and table rows (button.tsx base fill)
 RAISED = "#1f1f1f"  # raised and selected elements
 TEXT = "#fafafa"  # globals.css --foreground
 TEXT_SECONDARY = "#a3a3a3"  # neutral-400
-TEXT_MUTED = "#737373"  # neutral-500
 BORDER = "rgba(255, 255, 255, 0.10)"  # border-white/10
-BORDER_FOCUS = "rgba(255, 255, 255, 0.30)"
+BORDER_FOCUS = "rgba(255, 255, 255, 0.35)"
 HOVER_FILL = "#e5e5e5"  # primary button hover (neutral-200)
 SUBTLE_FILL = "rgba(255, 255, 255, 0.05)"  # secondary button hover
 VERIFIED = "#34d399"  # emerald-400, status only
@@ -85,7 +84,7 @@ _BOTH_MODES: dict[str, str] = {
     "block_background_fill": SURFACE,
     "block_border_color": BORDER,
     "block_border_width": "1px",
-    "block_info_text_color": TEXT_MUTED,
+    "block_info_text_color": TEXT_SECONDARY,
     "block_label_background_fill": SURFACE,
     "block_label_border_color": BORDER,
     "block_label_text_color": TEXT_SECONDARY,
@@ -101,7 +100,7 @@ _BOTH_MODES: dict[str, str] = {
     "input_border_color_hover": BORDER_FOCUS,
     "input_border_color_focus": BORDER_FOCUS,
     "input_border_width": "1px",
-    "input_placeholder_color": TEXT_MUTED,
+    "input_placeholder_color": TEXT_SECONDARY,
     "input_shadow": "none",
     "input_shadow_focus": "none",
     "loader_color": TEXT_SECONDARY,
@@ -133,6 +132,12 @@ _BOTH_MODES: dict[str, str] = {
     "button_secondary_text_color": TEXT,
     "button_secondary_text_color_hover": TEXT,
     "button_secondary_shadow": "none",
+    "button_cancel_text_color_hover": TEXT,
+    # Unused by the app today, but Gradio's defaults differ by mode; pinned so none can.
+    "checkbox_background_color": SURFACE_2,
+    "checkbox_border_color": BORDER,
+    "checkbox_border_color_hover": BORDER_FOCUS,
+    "shadow_spread": "1px",
 }
 
 # Variables with no `_dark` twin in Gradio 6.32.
@@ -163,8 +168,10 @@ THEME = BaseTheme(
     primary_hue=MONO,
     secondary_hue=MONO,
     neutral_hue=MONO,
-    font=(GoogleFont("Inter", weights=(400, 500, 600)), "ui-sans-serif", "system-ui", "sans-serif"),
-    font_mono=(GoogleFont("JetBrains Mono"), "ui-monospace", "SFMono-Regular", "monospace"),
+    # Plain family names: nothing is fetched from Google or any other host (ADR-0004). Inter is
+    # used where installed; otherwise the OS UI font, which is close to it.
+    font=(Font("Inter"), "ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "sans-serif"),
+    font_mono=(Font("JetBrains Mono"), "ui-monospace", "SFMono-Regular", "Menlo", "monospace"),
 ).set(**_both_modes(_BOTH_MODES), **_ANY_MODE)
 
 CSS = f"""
