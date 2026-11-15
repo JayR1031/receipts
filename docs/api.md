@@ -10,5 +10,6 @@
 - Deploy: Render (ADR-0005) builds `./Dockerfile` from `main` on every merge (autoDeploy) and
   runs it at https://receipts-h745.onrender.com; nothing is pushed to a registry. The `CMD` binds
   `${PORT:-8000}`, so Render's injected `PORT` wins and the local default stays 8000. `/healthz`
-  reports `GIT_SHA` when baked in, else the first seven characters of `RENDER_GIT_COMMIT`. See
-  `docs/runbooks/render.md`.
+  reports a baked `GIT_SHA`, except that the image's default `unknown` (or a blank value) counts
+  as unset; then the first seven characters of `RENDER_GIT_COMMIT`, else `unknown`. Its
+  `X-Receipts-Mode` header says `live` or `demo`. See `docs/runbooks/render.md`.
