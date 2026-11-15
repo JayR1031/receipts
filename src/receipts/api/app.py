@@ -13,6 +13,7 @@ from fastapi.responses import RedirectResponse
 
 from receipts import __version__
 from receipts.api.models import Health
+from receipts.api.routes import router as runs_router
 from receipts.ui.app import UI_PATH, mount_ui
 
 router = APIRouter()
@@ -36,6 +37,7 @@ def root() -> RedirectResponse:
 def create_app() -> FastAPI:
     app = FastAPI(title="Receipts", version=__version__)
     app.include_router(router)
+    app.include_router(runs_router)
     mount_ui(app)
     return app
 
