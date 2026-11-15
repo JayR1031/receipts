@@ -12,8 +12,10 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   match must cover the *whole quote* (`partial_ratio_alignment`'s span over the quote is
   `[0, len(quote))`); otherwise a page shorter than the quote would match inside the quote and
   "verify" text that is not on the page.
-* **Numbers must match where the quote matches** (project owner's ruling, 2026-11-15, a
-  deliberate tightening of the spec's `partial_ratio >= 90` rule; GitHub issue #33). A number
+* **Numbers must match where the quote matches.** Sources: for the fuzzy path, the project
+  owner's ruling of 2026-11-15 (a deliberate tightening of the spec's `partial_ratio >= 90` rule,
+  scoped to fuzzy matches); for the exact path, the L2 judge's LOW 7 and the gh-33 judge's HIGH
+  #1, with the edge rule set by the coordinating session (not an owner ruling). A number
   token is the regex `[$€£¥]?\\d+(?:[.,]\\d+)*%?` on the normalized text; `19.99` is one token,
   never split, and the currency sign and `%` are part of it. Tokens compare after
   `_canonical_number`: thousands-separator commas removed (a comma followed by exactly three
@@ -39,11 +41,15 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   (`quote_exact` or `quote_fuzzy`), every **value token** in the normalized `claim.text` must
   also be a number token of the normalized quote, compared as above. A value token is a number
   token with a currency sign, a `%`, a decimal part or a thousands separator (`$20`, `20%`,
-  `19.5`, `2,500`). A bare integer is not checked: it is a year (`As of 2025`), a plan or model
-  name (`Pro 2`, `GPT-4`), `24/7` or a date far more often than a price, and the quote need not
-  repeat it. The word `free` in the quote matches a zero price in the claim (`$0`, `$0.00`;
-  `0 dollars` is a bare integer and is not checked), and nothing else: not `$5`, not `$0.50`,
-  and not `freedom`. Known limit: a quote's "free trial" also matches a claim's `$0`.
+  `19.5`, `2,500`). A bare integer is not checked, so a year (`As of 2025`), a plan or model
+  name (`Pro 2`, `GPT-4`), `24/7` or a date need not be in the quote. Known limit: a bare
+  integer count is not checked either, so `500 credits` or `50 seats` in the claim verifies when
+  the quote lacks it, and `18000 credits` is unchecked while `18,000 credits` is checked. A name
+  or date with a decimal point (`GPT-4.5`, `14.11.2026`) is a value token and is checked. The
+  word `free` in the quote matches a zero price in the claim (`$0`, `€0`, `£0`, `¥0`, and
+  `$0.00` and the like; `0 dollars` is a bare integer and is not checked), and nothing else: not
+  `$5`, not `$0.50`, and not `freedom`. Known limit: any standalone `free` anywhere in the
+  quote counts, including `not free`, `free trial` and another plan's free tier.
   A miss (not dropped) has the note `claim numbers not in quote: <tokens>`, sorted and
   deduplicated. A quote on the page proves only what the quote says; a price the model added to
   the claim text is not covered by it. The quote may carry numbers the claim does not repeat.
