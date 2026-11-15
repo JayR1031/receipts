@@ -1,0 +1,144 @@
+"""`SqlRunRepo` on SQLite: the one `runs` table round-trips every contract it stores.
+
+All text here is invented: no real companies, people, usernames or keys. No network, and no
+`DATABASE_URL`: the Neon round-trip is the `integration`-marked test at the bottom.
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+
+from receipts.contracts import (
+    RUN_EVENT_ADAPTER,
+    Battlecard,
+    Claim,
+    RunEvent,
+    RunId,
+    RunSummary,
+)
+from receipts.db import SqlRunRepo, create_schema
+from receipts.settings import MissingSettingError, get_settings
+
+T0 = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
+RUN_ID = RunId("run-sample-0001")
+
+
+def _summary(run_id: RunId, started_at: datetime) -> RunSummary:
+    return RunSummary(
+        run_id=run_id,
+        subject="Acme Widgets",
+        rival="Zeta Gadgets",
+        status="running",
+        verified_count=0,
+        total_count=0,
+        started_at=started_at,
+    )
+
+
+@pytest.fixture
+async def repo(tmp_path: Path) -> AsyncIterator[SqlRunRepo]:
+    repo = SqlRunRepo(url=f"sqlite:///{tmp_path / 'receipts.db'}")
+    await create_schema(repo.engine)
+    yield repo
+    await repo.dispose()
+
+
+async def test_every_event_kind_round_trips_in_order(
+    repo: SqlRunRepo, sample_events: list[RunEvent]
+) -> None:
+    kinds = {e.kind for e in sample_events}
+    assert len(kinds) == 8, "the fixture covers every RunEvent kind"
+    await repo.save_run(_summary(RUN_ID, T0))
+    for event in sample_events:
+        await repo.append_event(event)
+
+    stored = await repo.get_events(RUN_ID)
+
+    assert stored == sample_events
+    for event in stored:
+        dumped = RUN_EVENT_ADAPTER.dump_python(event, mode="json")
+        assert RUN_EVENT_ADAPTER.validate_python(dumped) == event
+
+
+async def test_save_battlecard_then_get_run_returns_it(
+    repo: SqlRunRepo, sample_claims: list[Claim]
+) -> None:
+    await repo.save_run(_summary(RUN_ID, T0))
+    card = Battlecard(
+        run_id=RUN_ID,
+        subject="Acme Widgets",
+        rival="Zeta Gadgets",
+        claims=tuple(sample_claims),
+        verified_count=2,
+        total_count=3,
+        started_at=T0,
+        finished_at=T0 + timedelta(seconds=7),
+    )
+    assert await repo.get_run(RUN_ID) is None
+
+    await repo.save_battlecard(card)
+
+    assert await repo.get_run(RUN_ID) == card
+    assert card.started_at.tzinfo is not None
+    [listed] = await repo.list_runs()
+    assert (listed.status, listed.verified_count, listed.total_count) == ("done", 2, 3)
+    assert listed.started_at == T0
+
+
+async def test_list_runs_is_newest_first(repo: SqlRunRepo) -> None:
+    older = RunId("run-older")
+    newer = RunId("run-newer")
+    await repo.save_run(_summary(older, T0))
+    await repo.save_run(_summary(newer, T0 + timedelta(minutes=5)))
+
+    listed = await repo.list_runs()
+
+    assert [s.run_id for s in listed] == [newer, older]
+    assert all(s.started_at.tzinfo is not None for s in listed)
+
+
+async def test_get_run_unknown_is_none(repo: SqlRunRepo) -> None:
+    assert await repo.get_run(RunId("run-nope")) is None
+    assert await repo.get_events(RunId("run-nope")) == []
+
+
+async def test_repo_without_url_fails_on_first_use_not_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    get_settings.cache_clear()
+    try:
+        repo = SqlRunRepo()  # construction never touches settings or the network
+        with pytest.raises(MissingSettingError) as excinfo:
+            await repo.list_runs()
+        assert excinfo.value.name == "DATABASE_URL"
+        assert "DATABASE_URL" in str(excinfo.value)
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.mark.integration
+async def test_neon_round_trip(sample_events: list[RunEvent]) -> None:
+    """Needs `DATABASE_URL` (Neon `dev` branch). Skipped, by name, when it is not set."""
+    if not os.environ.get("DATABASE_URL"):
+        pytest.skip("DATABASE_URL not set: Neon round-trip (test_neon_round_trip) skipped")
+    get_settings.cache_clear()
+    run_id = RunId(f"run-integration-{int(datetime.now(tz=UTC).timestamp())}")
+    repo = SqlRunRepo()
+    try:
+        await create_schema(repo.engine)
+        await repo.save_run(_summary(run_id, datetime.now(tz=UTC)))
+        for event in sample_events:
+            await repo.append_event(event.model_copy(update={"run_id": run_id}))
+        stored = await repo.get_events(run_id)
+        assert [e.kind for e in stored] == [e.kind for e in sample_events]
+        assert run_id in {s.run_id for s in await repo.list_runs()}
+    finally:
+        await repo.delete_run(run_id)
+        await repo.dispose()
+        get_settings.cache_clear()
