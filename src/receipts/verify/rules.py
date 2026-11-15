@@ -21,9 +21,17 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   stay part of the token. Exact-substring matches are unaffected. A one-digit price change scores
   ~97, and a battlecard must never show a wrong number as verified. `normalize` keeps `$ € £ %
   . ,` next to digits, so the token regex runs on the normalized strings.
+* **Claim numbers must be in the quote** (GitHub issue #33): once the quote is on the page
+  (`quote_exact` or `quote_fuzzy`), every number token in the normalized `claim.text` must also
+  be a number token of the normalized quote, by the same token rule and thousands-comma
+  stripping as above. Otherwise the claim is a miss (not dropped) with the note
+  `claim numbers not in quote: <tokens>`. A quote on the page proves only what the quote says;
+  a price the model added to the claim text is not covered by it. A claim with no number tokens
+  is unaffected, and the quote may carry numbers the claim does not repeat.
 * `SearchReceipt`: verified (`search_log`) iff a logged `SearchResult` has the same `query`,
   `url` and `rank`. A query that was never logged this run is **dropped**; a logged query whose
-  rows do not contain that url/rank is a miss.
+  rows do not contain that url/rank is a miss. The claim-number rule above is out of scope for
+  search receipts (there is no quote to check the claim text against).
 
 Dropped-claim convention (L1 keys `DroppedEvent` off this; W2 relies on it too):
     verified=False, verify_method=None, verify_note=f"{DROPPED_PREFIX}<reason>"
@@ -55,6 +63,7 @@ DROPPED_PREFIX = "dropped: "
 NOTE_URL_NOT_FETCHED = f"{DROPPED_PREFIX}url not fetched this run"
 NOTE_QUERY_NOT_LOGGED = f"{DROPPED_PREFIX}search query not logged this run"
 NOTE_FETCH_FAILED = "fetch failed"
+_NOTE_CLAIM_NUMBERS = "claim numbers not in quote: "
 
 # --- normalize ----------------------------------------------------------------------
 
@@ -129,20 +138,46 @@ def _verify_quote(claim: Claim, receipt: QuoteReceipt, pages: Mapping[str, Fetch
         return _outcome(claim, verified=False, method=None, note=NOTE_URL_NOT_FETCHED)
     if not page.ok:
         return _outcome(claim, verified=False, method=None, note=NOTE_FETCH_FAILED)
-    quote, body = normalize(receipt.quote), normalize(page.text)
+    quote = normalize(receipt.quote)
+    method, note = _match_quote(quote, normalize(page.text))
+    if method is None:
+        return _outcome(claim, verified=False, method=None, note=note)
+    unsupported = _missing_numbers(normalize(claim.text), quote)
+    if unsupported:
+        note = f"{_NOTE_CLAIM_NUMBERS}{', '.join(unsupported)}"
+        return _outcome(claim, verified=False, method=None, note=note)
+    return _outcome(claim, verified=True, method=method, note=note)
+
+
+def _match_quote(quote: str, body: str) -> tuple[VerifyMethod | None, str | None]:
+    """How the normalized `quote` is on the normalized page `body`: `(method, note)`.
+
+    `method` is `None` on a miss, and `note` then says why.
+    """
     if quote and quote in body:
-        return _outcome(claim, verified=True, method="quote_exact", note=None)
+        return "quote_exact", None
     miss = _fuzzy_miss(quote, body)
     if miss is not None:
-        return _outcome(claim, verified=False, method=None, note=miss)
+        return None, miss
     score = fuzz.partial_ratio(quote, body)
-    note = f"fuzzy match: partial_ratio={score:.1f} >= {FUZZY_THRESHOLD}"
-    return _outcome(claim, verified=True, method="quote_fuzzy", note=note)
+    return "quote_fuzzy", f"fuzzy match: partial_ratio={score:.1f} >= {FUZZY_THRESHOLD}"
 
 
 def _canonical_number(token: str) -> str:
     """Token with thousands-separator commas removed (`1,000` -> `1000`; `19,99` unchanged)."""
     return _THOUSANDS_COMMA.sub("", token)
+
+
+def _missing_numbers(text: str, reference: str) -> list[str]:
+    """Number tokens of `text` that are not number tokens of `reference`, sorted, deduplicated.
+
+    The one number comparison for both rules (quote against page, claim against quote): tokens
+    from `_NUMBER_TOKEN`, compared after `_canonical_number`, reported as written in `text`.
+    """
+    present = {_canonical_number(tok) for tok in _NUMBER_TOKEN.findall(reference)}
+    return sorted(
+        {tok for tok in _NUMBER_TOKEN.findall(text) if _canonical_number(tok) not in present}
+    )
 
 
 def _fuzzy_miss(quote: str, body: str) -> str | None:
@@ -158,10 +193,7 @@ def _fuzzy_miss(quote: str, body: str) -> str | None:
     score = 0.0 if alignment is None else alignment.score
     if alignment is None or score < FUZZY_THRESHOLD:
         return f"quote not found on page: best partial_ratio={score:.1f} < {FUZZY_THRESHOLD}"
-    on_page = {_canonical_number(tok) for tok in _NUMBER_TOKEN.findall(body)}
-    missing = sorted(
-        {tok for tok in _NUMBER_TOKEN.findall(quote) if _canonical_number(tok) not in on_page}
-    )
+    missing = _missing_numbers(quote, body)
     if missing:
         return (
             f"quote not found on page: numbers differ ({', '.join(missing)} not on page; "
