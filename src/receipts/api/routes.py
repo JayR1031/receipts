@@ -35,9 +35,9 @@ def get_run_service(request: Request) -> RunService:
 
 
 def check_passcode(presented: str | None, settings: Settings) -> None:
-    """401 unless a passcode is configured and the header matches it (constant time)."""
+    """401 unless a non-blank passcode is configured and the header matches it (constant time)."""
     expected = settings.demo_passcode
-    if expected is None or presented is None:
+    if expected is None or not expected.get_secret_value().strip() or presented is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "a valid X-Demo-Passcode is required")
     if not secrets.compare_digest(presented.encode(), expected.get_secret_value().encode()):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "a valid X-Demo-Passcode is required")

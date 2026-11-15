@@ -92,6 +92,18 @@ def test_post_run_is_401_when_no_passcode_is_configured(
     assert response.status_code == 401
 
 
+@pytest.mark.parametrize("configured", ["", "   "])
+def test_post_run_is_401_when_the_configured_passcode_is_blank(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, configured: str
+) -> None:
+    """`DEMO_PASSCODE=""` is not configured: an empty header must not start a run."""
+    _configure(monkeypatch, passcode=False, key=True)
+    monkeypatch.setenv("DEMO_PASSCODE", configured)
+    get_settings.cache_clear()
+    response = client.post("/api/runs", json=BODY, headers={"X-Demo-Passcode": configured})
+    assert response.status_code == 401
+
+
 def test_post_run_is_503_naming_the_key_when_keenable_key_missing(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
