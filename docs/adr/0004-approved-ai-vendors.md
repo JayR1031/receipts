@@ -26,7 +26,7 @@ Added 2026-11-14 (issue #1). Each row says what leaves the repo or the running a
 | Neon | Postgres for runs, sources, claims, events | Everything a run produces: the comparison inputs a person typed, and quotes from public pages that can name people. No accounts or contact details |
 | Render | Hosts the container (ADR-0005) | The built image, its environment secrets, and everything the running app handles: comparison inputs, run data on its way to Neon, and request logs |
 | Vercel | Hosts the landing page (lane L6, ADR-0005) | The landing page's own repository and build; no code from this repository and no run data |
-| Mel (desktop agentic terminal) | Builds lane L5 (`ui/`) | Repository code; Mel runs on an OpenAI key (an approved vendor, set 2026-11-14). Switching Mel to another vendor needs that vendor added to the approved list first |
+| Mel (desktop agentic terminal) | Drafted the demo script, an architecture diagram and the submission text, and builds UI follow-ups in lane L5 (`ui/`), such as #40 (PR #47). Lane L5 itself was built by Claude Code (issue #17) | Repository code; Mel runs on an OpenAI key (an approved vendor, set 2026-11-14). Switching Mel to another vendor needs that vendor added to the approved list first |
 | OpenAI Codex CLI (approved vendor) | Builds lane L4 (`db/`, `api/`) | Repository code |
 | OpenAI API (approved vendor) | Backup LLM for the voice agent, through ElevenLabs (issue #37) | When the primary and first backup models are unavailable: voice-agent transcripts and tool results |
 | FAL | Generates the submission's OG image (the link-preview picture) via the Skillry `bs-duolingo-style-og` skill | One headline, the product name and a one-line context; no code or run data |

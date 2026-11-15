@@ -18,9 +18,9 @@ checked against the web page or search result it came from.
 
 > [!IMPORTANT]
 > **Status on `main` (2026-11-15):** the deployed app runs live comparisons.
-> - **How a run works:** Claude agents search and fetch with Keenable, and every claim goes through the verifier. A claim that fails gets up to two Mellea rewrites. Runs are stored in Neon.
+> - **How a run works:** Claude agents search and fetch with Keenable, and every claim goes through the verifier. Runs are stored in Neon. A claim that fails gets up to two Mellea rewrites; those were measured locally before deploy, not yet on the deployed app (see the Mel vs Warp demo below).
 > - **The passcode:** starting a run needs the demo passcode (the Passcode field in the UI, `X-Demo-Passcode` in the API). Reading runs does not.
-> - **Without the live keys** (`ANTHROPIC_API_KEY`, `KEENABLE_API_KEY`), for example in a local run with no environment, the app replays one built-in demo run of invented companies instead.
+> - **Without the live settings** (`ANTHROPIC_API_KEY`, `KEENABLE_API_KEY` and `DATABASE_URL`), the app serves one built-in demo run of invented companies instead (`src/receipts/api/wiring.py`). The UI replays it with no setup at all. `POST /api/runs` still checks the passcode first (401 without one) and then the Keenable key (503 without it).
 >
 > The live app runs on Render's free tier, which sleeps after 15 minutes idle. The first load can
 > take about a minute (Render's free-tier docs, cited in ADR-0005).
@@ -52,7 +52,7 @@ failed, the reason.
 ## What you see in 30 seconds
 
 1. Type a **subject** (you), a **rival** and an optional **category**, plus the demo passcode.
-2. Two specialists run in parallel, one per domain pack: `pricing` and `positioning_seo`. The built-in demo replay, used when the live keys are not set, covers the pricing pack only.
+2. Two specialists run in parallel, one per domain pack: `pricing` and `positioning_seo`. The built-in demo replay, used when the live settings are not all set, covers the pricing pack only.
 3. The progress log names each step: `started`, `search`, `fetch`, `claim`, `verified`,
    `dropped`, `error`, `done`.
 4. The battlecard groups claims by domain. Each claim is marked `[verified]` or `[unverified]`
@@ -192,9 +192,9 @@ sequenceDiagram
   `[unverified]`, with its note.
 - **Storage.** One `runs` table: `id, created_at, subject, rival, category, status, battlecard`
   (JSON), `events` (JSON) (`src/receipts/db/schema.py`).
-- **Wiring.** With `ANTHROPIC_API_KEY` and `KEENABLE_API_KEY` set, the API and UI run the live
-  service: Claude, Keenable, Neon and Mellea repairs (`build_live_service` in
-  `src/receipts/api/wiring.py`). Without them, they serve the built-in demo replay.
+- **Wiring.** With `ANTHROPIC_API_KEY`, `KEENABLE_API_KEY` and `DATABASE_URL` all set, the API
+  and UI run the live service: Claude, Keenable, Neon and Mellea repairs (`build_live_service`
+  in `src/receipts/api/wiring.py`). Otherwise they serve the built-in demo replay.
 
 </details>
 
@@ -219,13 +219,18 @@ lower-cased, whitespace collapsed.
 
 **The number rules, in plain words** (PR #35):
 - **Why fuzzy needs a number rule:** a one-digit price change still scores about 97 on fuzzy matching. So each number in the quote, with its currency sign or `%`, must be the page's number at the same place in the match. A quote that swaps or repeats the page's prices fails.
-- **The claim has to match its quote:** every price, percentage, decimal or thousands number in the claim must also be in its quote. A quote proves only what it says.
+- **The claim has to match its quote:** every value in the claim must also be in its quote: a price written with a currency sign (`$20`, `€5`), a percentage, a decimal, or a number with a thousands separator. A quote proves only what it says.
 - **Equivalences:** commas that separate thousands are ignored, so `1,000` equals `1000` (a decimal comma such as `19,99` is kept). `$20.00` equals `$20`, and `20 percent` equals `20%`.
 
-The rules have known limits, tracked in issue #45. Plan labels next to a price are not checked. Bare-integer counts are not checked. A quote whose page text runs past the score window can be rejected although it is true.
+The rules have known limits, tracked in issue #45 and described in `rules.py`'s docstring:
+- Plan labels next to a price are not checked.
+- Bare-integer counts (`500 credits`) and unsigned prices (`25 dollars`, `25 USD`, `$ 25`) in the claim are not checked.
+- Any standalone "free" in the quote matches a `$0` claim, including "not free".
+- Values swapped within one quote still verify.
+- A true quote whose page text runs past the score window can be rejected.
 
 The outputs below come from running `verify_claim` on each case at commit `d719360`; the same
-cases are in `tests/test_verify.py` and `tests/test_verify_claim_numbers.py`.
+cases, or close variants, are in `tests/test_verify.py` and `tests/test_verify_claim_numbers.py`.
 
 <details>
 <summary><code>$19.99</code> quoted, page says <code>$19.49</code>: not verified</summary>
@@ -303,8 +308,8 @@ claim: Warp Build is $18/month on the annual plan and includes $20 of agent usag
    note: claim numbers not in quote: $18
 ```
 
-The quote is on the page, but it does not carry the claim's `$18`. This is the live failure that
-issue #33 reported.
+The quote is on the page, but it does not carry the claim's `$18`. The claim and quote come from the run issue #33
+reported (`run-0e7ff2b1bb05`); the page text is invented for the test.
 
 </details>
 
@@ -361,7 +366,7 @@ Reading runs needs no passcode; starting one does.
 ```bash
 BASE=https://receipts-h745.onrender.com
 
-# Start a run: 202 with {"run_id": "run-…"}. The deployed app runs a live comparison; without the live keys, any subject and rival return the Acme vs Zeta demo battlecard
+# Start a run: 202 with {"run_id": "run-…"}. The deployed app runs a live comparison. With the passcode and Keenable key set but the other live settings missing, any subject and rival return the Acme vs Zeta demo battlecard
 curl -sS -X POST "$BASE/api/runs" \
   -H "Content-Type: application/json" \
   -H "X-Demo-Passcode: $DEMO_PASSCODE" \
@@ -492,9 +497,11 @@ The demo compares **Mel** (the agentic terminal this hackathon promotes, per the
 | `run-af0e77c1af92` | on (7 of 7 repaired) | 22 / 22 | 0 | 21.1 s |
 
 **Reading the numbers.**
-- **Why claims failed:** in a separate repairs-off run, every failure was a claim price not in its quote (`claim numbers not in quote`), for example "Warp Build is $18/month…".
-- **What "repaired" means:** the verifier accepted the rewrite. Rewrites can carry plan names their quotes do not show, a known limit tracked in issue #45. In one repairs-on run, at least 6 of the 8 verified pricing claims did.
+- **Why claims failed:** the table's runs did not record their failure reasons. In a separate repairs-off run, `run-3cc9b768f440` (15 of 20 verified), all 5 failures were a claim price not in its quote (`claim numbers not in quote`), for example "Warp Build is $18/month…".
+- **What "repaired" means:** the verifier accepted the rewrite. Rewrites can carry plan names their quotes do not show, a known limit tracked in issue #45. In `run-a7be7a53cba9`, a separate repairs-on run not in the table (20 of 20), at least 6 of the 8 verified pricing claims did.
+- **Duplicates:** verified/total can count a repaired claim that duplicates another claim's receipt (issue #45). These runs did not measure that.
 - **Sample:** two pairs of one subject and rival. The model is not deterministic.
+- **Not reproducible from this repository:** the runner scripts were session scratch files. PR #46's description gives their settings.
 
 ## How it was built at the Miami AI Hackathon
 
