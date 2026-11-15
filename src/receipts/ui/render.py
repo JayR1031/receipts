@@ -44,9 +44,11 @@ def _describe_claim_step(event: ClaimEvent | VerifiedEvent | DroppedEvent) -> st
         case ClaimEvent(claim=claim):
             return f"{claim.about}: {claim.text}"
         case VerifiedEvent(claim=claim):
-            return f"{claim.verify_method or 'verified'}: {claim.text}"
+            tag = '<span class="status-verified">[verified]</span>'
+            return f"{tag} {claim.verify_method or 'verified'}: {claim.text}"
         case DroppedEvent(claim=claim, reason=reason):
-            return f"dropped ({reason}): {claim.text}"
+            tag = '<span class="status-dropped">[dropped]</span>'
+            return f"{tag} dropped ({reason}): {claim.text}"
 
 
 def _describe_source_step(event: SearchEvent | FetchEvent) -> str:
@@ -87,7 +89,7 @@ def _render_receipt(receipt: Receipt) -> str:
 
 
 def _render_claim(claim: Claim) -> str:
-    marker = "[verified]" if claim.verified else "[unverified]"
+    marker = '<span class="status-verified">[verified]</span>' if claim.verified else "[unverified]"
     note = f" ({claim.verify_note})" if claim.verify_note else ""
     return f"- {marker} **{claim.about}**: {claim.text}{note}  \n  {_render_receipt(claim.receipt)}"
 

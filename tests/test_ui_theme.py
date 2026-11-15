@@ -125,3 +125,87 @@ def test_no_theme_font_is_fetched_from_a_third_party() -> None:
     fonts = [*THEME._font, *THEME._font_mono]
     fetched = [f.name for f in fonts if isinstance(f, Font) and f.stylesheet()["url"]]
     assert fetched == []
+
+
+def _hex_channel(hex_pair: str) -> float:
+    return int(hex_pair, 16) / 255.0
+
+
+def _srgb_to_linear(v: float) -> float:
+    return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+
+
+def _relative_luminance(hex_colour: str) -> float:
+    r = _srgb_to_linear(_hex_channel(hex_colour[1:3]))
+    g = _srgb_to_linear(_hex_channel(hex_colour[3:5]))
+    b = _srgb_to_linear(_hex_channel(hex_colour[5:7]))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _contrast_ratio(fg: str, bg: str) -> float:
+    l1 = _relative_luminance(fg)
+    l2 = _relative_luminance(bg)
+    lighter, darker = (l1, l2) if l1 >= l2 else (l2, l1)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _expand_hex_colour(colour: str) -> str:
+    colour = colour.strip().lower()
+    if re.fullmatch(r"#[0-9a-f]{6}", colour):
+        return colour
+    if re.fullmatch(r"#[0-9a-f]{3}", colour):
+        return "#" + "".join(ch * 2 for ch in colour[1:])
+    raise ValueError(f"unsupported colour format: {colour!r}")
+
+
+def _theme_colour(attr: str) -> str:
+    value = str(getattr(THEME, attr))
+    return _expand_hex_colour(value)
+
+
+def test_css_guards_no_imports_and_no_external_urls() -> None:
+    assert "@import" not in CSS
+    assert "url(http" not in CSS
+
+
+def test_tagline_constant_matches_the_product_copy() -> None:
+    assert TAGLINE == "Every claim carries a receipt."
+
+
+def _css_hex_colours(text: str) -> set[str]:
+    return {m.group(0).lower() for m in re.finditer(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\b", text)}
+
+
+def _theme_string_values() -> list[str]:
+    return [v for k, v in vars(THEME).items() if isinstance(v, str) and k != "name"]
+
+
+def test_theme_colours_use_only_hex_literals_no_named_no_hsl() -> None:
+    theme_values = _theme_string_values()
+    raw = "\n".join([*theme_values, CSS]).lower()
+
+    # Gradio's theme injects svg data URIs (checkbox/radio icons) that include fill='white'.
+    # That's not a CSS colour in our theme and cannot be made hex without reimplementing icons.
+    # Filter those out so this test focuses on actual CSS colour tokens.
+    scrubbed = re.sub(r"url\(\"data:image/svg\+xml,.*?\"\)", "", raw)
+    css_only = "\n".join(line for line in scrubbed.splitlines() if ":" in line)
+    named = re.findall(r"\b(?:white|black|gray|grey|red|green|blue)\b", css_only)
+    assert named == [], f"named colours found: {sorted(set(named))}"
+    assert "hsl(" not in raw
+
+
+def test_all_hex_colours_are_6_digit_or_3_digit_only_no_4_or_8_digit_alpha() -> None:
+    theme_values = _theme_string_values()
+    raw = "\n".join([*theme_values, CSS])
+
+    bad = re.findall(r"#[0-9a-fA-F]{4}\b|#[0-9a-fA-F]{8}\b", raw)
+    assert bad == [], f"alpha hex colours found: {sorted(set(bad))}"
+
+
+def test_wcag_contrast_for_secondary_text_and_focus_border_is_at_least_4_5_to_1() -> None:
+    bg = _theme_colour("body_background_fill")
+    secondary = _theme_colour("body_text_color_subdued")
+    focus = _theme_colour("border_color_accent")
+
+    assert _contrast_ratio(secondary, bg) >= 4.5
+    assert _contrast_ratio(focus, bg) >= 4.5

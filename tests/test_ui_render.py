@@ -20,8 +20,10 @@ KIND_MARKERS: dict[str, str] = {
     "search": "acme widgets pricing",
     "fetch": "https://acme-widgets.example/pricing",
     "claim": "Acme starts at 9 dollars",
-    "verified": "quote_exact",
-    "dropped": "quote not found on fetched page",
+    "verified": '<span class="status-verified">[verified]</span> quote_exact',
+    "dropped": (
+        '<span class="status-dropped">[dropped]</span> dropped (quote not found on fetched page)'
+    ),
     "error": "search timed out",
     "done": "2 of 3 verified",
 }
@@ -64,7 +66,7 @@ def test_render_battlecard_counts_rows_and_receipts(sample_claims: list[Claim]) 
     assert "Plans start at 9 dollars per seat" in md
     assert "zeta gadgets pricing" in md and "#1" in md
     # one verified marker per verified claim, one unverified marker for the rest
-    assert md.count("[verified]") == 2
+    assert md.count('<span class="status-verified">[verified]</span>') == 2
     assert md.count("[unverified]") == 1
     assert "## pricing" in md  # grouped by domain
 

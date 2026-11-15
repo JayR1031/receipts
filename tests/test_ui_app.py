@@ -12,6 +12,7 @@ import gradio as gr
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import receipts.ui.app as ui_app
 from receipts.contracts import RunEvent, RunId, RunRequest
 from receipts.fakes import FakeRunService
 from receipts.ui.app import UI_PATH, build_ui, mount_ui, resolve_service, run_stream
@@ -88,6 +89,13 @@ def test_resolve_service_prefers_app_state(fake_run_service: FakeRunService) -> 
 
 def test_ui_path_is_stable() -> None:
     assert UI_PATH == "/ui"
+
+
+def test_mount_ui_passes_theme_and_css_into_gradio() -> None:
+    # If mount_ui forgets theme= or css=, Gradio falls back to defaults and the UI becomes emerald.
+    src = Path(ui_app.__file__).read_text()
+    assert "theme=THEME" in src
+    assert "css=CSS" in src
 
 
 def test_ui_module_reads_no_environment_and_no_settings() -> None:
