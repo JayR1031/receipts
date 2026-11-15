@@ -59,12 +59,12 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
     window is at most `len(quote)` long. When the page text a quote matches is longer, the
     quote's first or last number can fall outside the window and be aligned with no page
     number. It is then a miss, and the note usually says `page has no number there` (227 of
-    230 in the tests below), although the page has the number just past the window
-    (`...; business $10` on `... · business $10.`; tests pin five cases). Rates: 195 of 5,998
-    true quotes, and 35 of 2,931 on pages dense with prices. A different cause rejects 2 of
-    6,941 true quotes that add a word: the price is inside the window, but the alignment ties
-    the added word's letters to text past the price. A true claim then shows as unverified,
-    never the reverse. Tracked in #45.
+    the 230 random-test rejections counted next), although the page has the number just past
+    the window (`...; business $10` on `... · business $10.`; tests pin five cases). Rates:
+    195 of 5,998 true quotes, and 35 of 2,931 on pages dense with prices. A different cause
+    rejects 2 of 6,941 true quotes that add a word: the price is inside the window, but the
+    alignment ties the added word's letters to text past the price. A true claim then shows as
+    unverified, never the reverse. Tracked in #45.
 
   A one-digit price change scores ~97. The aim is that a battlecard never shows a wrong number
   as verified; the known limits in this docstring are the exceptions. `normalize` keeps
