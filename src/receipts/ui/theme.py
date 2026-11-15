@@ -40,7 +40,7 @@ RAISED = "#1f1f1f"  # raised and selected elements
 TEXT = "#fafafa"  # globals.css --foreground
 TEXT_SECONDARY = "#a3a3a3"  # neutral-400
 BORDER = "rgba(255, 255, 255, 0.10)"  # border-white/10
-BORDER_FOCUS = "rgba(255, 255, 255, 0.35)"
+BORDER_FOCUS = "#a3a3a3"
 HOVER_FILL = "#e5e5e5"  # primary button hover (neutral-200)
 SUBTLE_FILL = "rgba(255, 255, 255, 0.05)"  # secondary button hover
 VERIFIED = "#34d399"  # emerald-400, status only
@@ -217,7 +217,7 @@ gradio-app {{
 }}
 .card a {{ color: {TEXT}; text-decoration: underline; text-underline-offset: 3px; }}
 .card a:hover {{ color: {TEXT_SECONDARY}; }}
-/* The only colours, for status marks. `render.py` emits plain `[verified]` text today. */
+/* The only colours, for status marks; render.py wraps battlecard status marks in these classes. */
 .status-verified {{ color: {VERIFIED}; }}
 .status-dropped {{ color: {DROPPED}; }}
 footer {{ filter: grayscale(1); opacity: 0.6; }}

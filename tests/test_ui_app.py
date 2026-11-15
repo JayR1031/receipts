@@ -90,6 +90,21 @@ def test_ui_path_is_stable() -> None:
     assert UI_PATH == "/ui"
 
 
+def test_mount_ui_serves_config_with_css_and_theme_stylesheet() -> None:
+    app = FastAPI()
+    mount_ui(app)
+    client = TestClient(app)
+
+    config = client.get(f"{UI_PATH}/config")
+    assert config.status_code == 200
+    payload = config.json()
+    assert ".status-verified" in payload.get("css", "")
+
+    theme_css = client.get(f"{UI_PATH}/theme.css")
+    assert theme_css.status_code == 200
+    assert "#000000" in theme_css.text
+
+
 def test_ui_module_reads_no_environment_and_no_settings() -> None:
     files = sorted(UI_DIR.glob("*.py"))
     assert files, f"no UI sources under {UI_DIR}"
