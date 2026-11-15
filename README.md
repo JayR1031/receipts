@@ -211,7 +211,7 @@ lower-cased, whitespace collapsed.
 | Quote | Quote is an exact substring of the page | `quote_exact` | none |
 | Quote | Exact substring, but an edge of the match cuts a page number (`$19` inside `$199`) | falls through to the fuzzy check | |
 | Quote | Fuzzy match: `rapidfuzz` `partial_ratio` at least 90, the match covers the whole quote, and each number in the quote is the page's number at the same place in the match | `quote_fuzzy` | `fuzzy match: partial_ratio=… >= 90` |
-| Quote | The quote is on the page, but a value in the claim (a price, a `%`, a decimal or a thousands number) is not in the quote | not verified | `claim numbers not in quote: …` |
+| Quote | The quote is on the page, but a value in the claim (a price written with a currency sign, a `%`, a decimal or a thousands number) is not in the quote | not verified | `claim numbers not in quote: …` |
 | Quote | Anything else | not verified | `quote not found on page: …` with the reason |
 | Search | Same query, rank and URL as a row logged this run | `search_log` | none |
 | Search | Query was never searched this run | not verified (dropped) | `dropped: search query not logged this run` |
@@ -226,8 +226,10 @@ The rules have known limits, tracked in issue #45 and described in `rules.py`'s 
 - Plan labels next to a price are not checked.
 - Bare-integer counts (`500 credits`) and unsigned prices (`25 dollars`, `25 USD`, `$ 25`) in the claim are not checked.
 - Any standalone "free" in the quote matches a `$0` claim, including "not free".
-- Values swapped within one quote still verify.
+- A claim that swaps two values its quote carries still verifies.
 - A true quote whose page text runs past the score window can be rejected.
+- Claims backed by a search receipt skip the claim-number rule: there is no quote to check the claim
+  against, so a price in the claim is not compared with the logged search result.
 
 The outputs below come from running `verify_claim` on each case at commit `d719360`; the same
 cases, or close variants, are in `tests/test_verify.py` and `tests/test_verify_claim_numbers.py`.
@@ -480,7 +482,8 @@ bin/jig --scope all   # adds integration tests (need keys and a database)
 **The blind judge.** The agent that wrote a change never reviews it. `/judge` runs a reviewer in a
 fresh context with the ticket, the diff and a rubric; every objection must cite `file:line` or a
 command's output (AGENTS.md section 5). The ruleset does not enforce this; every builder follows
-it as a rule (AGENTS.md section 9).
+it as a rule (AGENTS.md section 9). The owner waived it twice: PR #30 merged before its verdict,
+at the owner's request, and PR #35 merged on the owner's decision without a passing review.
 
 ## Demo: Mel vs Warp
 
@@ -501,7 +504,11 @@ The demo compares **Mel** (the agentic terminal this hackathon promotes, per the
 - **What "repaired" means:** the verifier accepted the rewrite. Rewrites can carry plan names their quotes do not show, a known limit tracked in issue #45. In `run-a7be7a53cba9`, a separate repairs-on run not in the table (20 of 20), at least 6 of the 8 verified pricing claims did.
 - **Duplicates:** verified/total can count a repaired claim that duplicates another claim's receipt (issue #45). These runs did not measure that.
 - **Sample:** two pairs of one subject and rival. The model is not deterministic.
-- **Not reproducible from this repository:** the runner scripts were session scratch files. PR #46's description gives their settings.
+- **Re-running them:** the runner scripts are in `scripts/mellea/` (`live_pairs.py 2` for the table,
+  `live_reasons.py` and `live_repaired.py` for the two separate runs). They need `ANTHROPIC_API_KEY`
+  and `KEENABLE_API_KEY`, spend model and search credits, and use a temporary SQLite file, not
+  Neon. They were committed after the runs, unchanged apart from their docstrings and line
+  wrapping; a new run gives new run ids and, since the model is not deterministic, new counts.
 
 ## How it was built at the Miami AI Hackathon
 
@@ -540,8 +547,9 @@ flowchart LR
   [Agentic Day](https://www.agenticdaysummit.com), and hosted at
   [Miami Dade College](https://www.mdc.edu) (Wolfson Campus).
 - **Sponsors in the product.**
-  - [**ElevenLabs**](https://elevenlabs.io) narrates the demo video and runs the "Ask Receipts" voice agent on the landing page.
-  - [**Mellea**](https://mellea.ai) (IBM, Apache 2.0) runs the repair loop for claims that fail the verifier (ADR-0007).
+  - [**ElevenLabs**](https://elevenlabs.io) narrates the demo video and runs the voice agent behind the landing page's "Talk to Receipts" button.
+  - [**Mellea**](https://mellea.ai) (IBM, Apache 2.0) runs the repair loop for claims that fail the verifier (ADR-0007). It is listed as a sponsor
+    on the owner's word (issue #39).
   - **Mel** drafted the demo script, the first architecture diagram (corrected against the code for this README) and the submission draft, running on an OpenAI key (ADR-0004, Mel row). It also built the UI's battlecard status colours (#40, PR #47).
 - **Built on.**
   - [Anthropic](https://www.anthropic.com)'s **Claude** (`claude-sonnet-5-5`), through [LangChain](https://www.langchain.com).
