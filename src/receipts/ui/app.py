@@ -157,4 +157,7 @@ def resolve_service(app: FastAPI) -> RunService:
 def mount_ui(app: FastAPI) -> None:
     """Mount the UI at `/ui`. `ssr_mode=False`: no Node in the image."""
     service = resolve_service(app)
-    gr.mount_gradio_app(app, build_ui(service), path=UI_PATH, ssr_mode=False, theme=THEME, css=CSS)
+    starter = getattr(app.state, "run_starter", None)  # W2's passcode-enforcing starter
+    gr.mount_gradio_app(
+        app, build_ui(service, starter=starter), path=UI_PATH, ssr_mode=False, theme=THEME, css=CSS
+    )

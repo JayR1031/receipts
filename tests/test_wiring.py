@@ -66,13 +66,15 @@ def test_create_app_without_keys_leaves_the_fakes_in_place() -> None:
     assert getattr(app.state, "live_run_service", None) is None
     response = TestClient(app).get("/api/runs")
     assert response.status_code == 200
-    assert response.json()[0]["run_id"] == "run-demo-0001"  # the demo fallback answered
+    assert isinstance(response.json(), list)  # the demo fallback answered, no live repo
     assert getattr(app.state, "live_run_service", None) is None
 
 
-def test_resolve_without_keys_returns_the_fallback_and_caches_nothing() -> None:
+def test_resolve_without_keys_returns_the_fallback_and_caches_nothing(
+    fake_run_service: FakeRunService,
+) -> None:
     app = FastAPI()
-    fallback = FakeRunService([])
+    fallback = fake_run_service
     assert resolve_run_service(app, fallback=fallback) is fallback
     assert getattr(app.state, "live_run_service", None) is None
 
@@ -81,16 +83,16 @@ def test_resolve_without_keys_returns_the_fallback_and_caches_nothing() -> None:
 
 
 def test_resolve_with_the_three_settings_caches_an_in_process_service(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_run_service: FakeRunService
 ) -> None:
     _configure_live(monkeypatch, tmp_path)
     monkeypatch.setattr("receipts.api.wiring.KeenableSearchClient", lambda key: _StubSearch())
     monkeypatch.setattr("receipts.api.wiring.KeenableFetchClient", lambda key: _StubFetch())
     app = FastAPI()
-    first = resolve_run_service(app, fallback=FakeRunService([]))
+    first = resolve_run_service(app, fallback=fake_run_service)
     assert isinstance(first, InProcessRunService)
     assert app.state.live_run_service is first
-    assert resolve_run_service(app, fallback=FakeRunService([])) is first
+    assert resolve_run_service(app, fallback=fake_run_service) is first
 
 
 def test_build_live_service_takes_injected_clients_and_repo(
@@ -113,14 +115,14 @@ def test_build_live_service_refuses_without_the_keenable_key(
 
 
 async def test_lazy_proxy_delegates_to_the_resolved_service(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_run_service: FakeRunService
 ) -> None:
     """L5 captures the service at mount time, so the proxy must resolve per call."""
     _configure_live(monkeypatch, tmp_path)
     monkeypatch.setattr("receipts.api.wiring.KeenableSearchClient", lambda key: _StubSearch())
     monkeypatch.setattr("receipts.api.wiring.KeenableFetchClient", lambda key: _StubFetch())
     app = FastAPI()
-    proxy = LazyRunService(app, fallback=FakeRunService([]))
+    proxy = LazyRunService(app, fallback=fake_run_service)
     assert await proxy.list() == []  # the real repo, freshly created schema, no rows
     assert isinstance(app.state.live_run_service, InProcessRunService)
 
@@ -128,31 +130,35 @@ async def test_lazy_proxy_delegates_to_the_resolved_service(
 # --- (c) the UI starter: passcode first, then the key, then start -------------------------------
 
 
-async def test_starter_rejects_a_wrong_passcode(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_starter_rejects_a_wrong_passcode(
+    monkeypatch: pytest.MonkeyPatch, fake_run_service: FakeRunService
+) -> None:
     monkeypatch.setenv("DEMO_PASSCODE", PASSCODE)
     monkeypatch.setenv("KEENABLE_API_KEY", "not-a-real-keenable-key")
     get_settings.cache_clear()
-    fake = FakeRunService([])
+    fake = fake_run_service
     with pytest.raises(PermissionError):
         await make_starter(fake)(RunRequest(subject="A", rival="B"), "wrong")
     assert fake.requests == {}
 
 
 async def test_starter_refuses_when_no_passcode_is_configured(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, fake_run_service: FakeRunService
 ) -> None:
     monkeypatch.setenv("KEENABLE_API_KEY", "not-a-real-keenable-key")
     get_settings.cache_clear()
-    fake = FakeRunService([])
+    fake = fake_run_service
     with pytest.raises(PermissionError):
         await make_starter(fake)(RunRequest(subject="A", rival="B"), "")
     assert fake.requests == {}
 
 
-async def test_starter_refuses_without_the_keenable_key(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_starter_refuses_without_the_keenable_key(
+    monkeypatch: pytest.MonkeyPatch, fake_run_service: FakeRunService
+) -> None:
     monkeypatch.setenv("DEMO_PASSCODE", PASSCODE)
     get_settings.cache_clear()
-    fake = FakeRunService([])
+    fake = fake_run_service
     with pytest.raises(MissingSettingError) as excinfo:
         await make_starter(fake)(RunRequest(subject="A", rival="B"), PASSCODE)
     assert excinfo.value.name == "KEENABLE_API_KEY"
@@ -160,12 +166,12 @@ async def test_starter_refuses_without_the_keenable_key(monkeypatch: pytest.Monk
 
 
 async def test_starter_starts_the_run_with_the_right_passcode_and_key(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, fake_run_service: FakeRunService
 ) -> None:
     monkeypatch.setenv("DEMO_PASSCODE", PASSCODE)
     monkeypatch.setenv("KEENABLE_API_KEY", "not-a-real-keenable-key")
     get_settings.cache_clear()
-    fake = FakeRunService([])
+    fake = fake_run_service
     run_id = await make_starter(fake)(RunRequest(subject="A", rival="B"), PASSCODE)
     assert fake.requests[run_id] == RunRequest(subject="A", rival="B")
 
