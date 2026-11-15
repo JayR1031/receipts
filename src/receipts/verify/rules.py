@@ -18,9 +18,11 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   and page (same `normalize()` for both); `19.99` is one token, never split. Tokens compare as
   strings after stripping only thousands-separator commas (a comma followed by exactly three
   digits), so `1,000 == 1000` while the decimal comma in `19,99` stays; the currency sign and `%`
-  stay part of the token. Exact-substring matches are unaffected. A one-digit price change scores
-  ~97, and a battlecard must never show a wrong number as verified. `normalize` keeps `$ € £ %
-  . ,` next to digits, so the token regex runs on the normalized strings.
+  stay part of the token. The **exact** path applies the same number check (GitHub issue #33):
+  a substring that cuts a page number, such as `basic is $19` inside `basic is $199`, is not
+  `quote_exact` and falls through to the fuzzy rule, which reports the number. A one-digit price
+  change scores ~97, and a battlecard must never show a wrong number as verified. `normalize`
+  keeps `$ € £ % . ,` next to digits, so the token regex runs on the normalized strings.
 * **Claim numbers must be in the quote** (GitHub issue #33): once the quote is on the page
   (`quote_exact` or `quote_fuzzy`), every number token in the normalized `claim.text` must also
   be a number token of the normalized quote, by the same token rule and thousands-comma
@@ -152,9 +154,11 @@ def _verify_quote(claim: Claim, receipt: QuoteReceipt, pages: Mapping[str, Fetch
 def _match_quote(quote: str, body: str) -> tuple[VerifyMethod | None, str | None]:
     """How the normalized `quote` is on the normalized page `body`: `(method, note)`.
 
-    `method` is `None` on a miss, and `note` then says why.
+    `method` is `None` on a miss, and `note` then says why. A substring that starts or ends inside
+    a page number (`$19` in `$199`) is not exact; it falls through to the fuzzy rule, whose
+    number check reports it.
     """
-    if quote and quote in body:
+    if quote and quote in body and not _missing_numbers(quote, body):
         return "quote_exact", None
     miss = _fuzzy_miss(quote, body)
     if miss is not None:

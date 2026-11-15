@@ -221,6 +221,42 @@ def test_fuzzy_quote_number_token_must_match_verbatim(text: str, quote: str, mis
     assert not is_dropped(out)
 
 
+@pytest.mark.parametrize(
+    ("text", "quote", "missing"),
+    [
+        ("Basic is $199 per seat per month.", "Basic is $19", "$19"),
+        ("Basic is $119 per seat per month.", "19 per seat per month", "19"),
+        ("Basic is $19.99 per seat per month.", "Basic is $19.9", "$19.9"),
+        ("Basic is $19.99 per seat per month.", "Basic is $19.", "$19"),
+    ],
+    ids=["digits-after-quote-end", "digits-before-quote-start", "decimal-cut", "trailing-dot"],
+)
+def test_exact_substring_cutting_a_number_is_a_miss(text: str, quote: str, missing: str) -> None:
+    # GitHub issue #33 (L2 judge LOW 7): a quote that ends or starts inside a page number is a
+    # plain substring, so the exact path needs the same whole-token number check as fuzzy.
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note is not None
+    assert f"numbers differ ({missing} not on page" in out.verify_note
+    assert not is_dropped(out)
+
+
+@pytest.mark.parametrize(
+    ("text", "verified", "method"),
+    [("$199 per seat", False, None), ("$19 per seat", True, "quote_exact")],
+    ids=["page-199", "page-19"],
+)
+def test_dollar_19_per_seat_against_199_and_19(
+    text: str, verified: bool, method: str | None
+) -> None:
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, "$19 per seat"), pages, [])
+    assert (out.verified, out.verify_method) == (verified, method)
+
+
 def test_fuzzy_quote_with_matching_number_tokens_verifies() -> None:
     url = "https://tokens.example/"
     text = "Basic is $19.99 per seat per month, billed yearly, with audit logs."

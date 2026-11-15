@@ -1,8 +1,9 @@
 """Lane L2, GitHub issue #33: every number in a quote-receipt claim's text must be in its quote.
 
-The two regression cases keep the claim and quote text from the first live run
-(run-0e7ff2b1bb05), where both were reported verified although the quote does not carry the
-claim's prices. They name products, not people. The pages around those quotes are invented for
+The two regression cases use the claim and quote text as reported for the first live run
+(run-0e7ff2b1bb05) in GitHub issue #33 and its task brief; the run's own record is not in this
+repository. Both were reported verified although the quote does not carry the claim's prices.
+They name products, not people. The pages around those quotes are invented for
 the test, and every URL ends in `.example`.
 """
 
