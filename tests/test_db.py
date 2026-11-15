@@ -153,7 +153,11 @@ async def test_event_before_save_run_creates_a_placeholder_row(
 
     await repo.append_event(started)  # the StartedEvent fills the names in
     [filled] = await repo.list_runs()
-    assert (filled.subject, filled.rival, filled.status) == ("Acme Widgets", "Zeta Gadgets", "running")
+    assert (filled.subject, filled.rival, filled.status) == (
+        "Acme Widgets",
+        "Zeta Gadgets",
+        "running",
+    )
     assert [e.kind for e in await repo.get_events(RUN_ID)] == ["search", "started"]
 
 
