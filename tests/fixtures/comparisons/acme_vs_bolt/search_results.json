@@ -1,0 +1,50 @@
+[
+  {
+    "query": "Acme Widgets pricing",
+    "rank": 1,
+    "url": "https://acme-widgets.example/pricing",
+    "title": "Acme Widgets pricing",
+    "snippet": "Starter is free. Team costs 9 dollars per seat.",
+    "ts": "2026-11-14T12:00:00Z"
+  },
+  {
+    "query": "Bolt Gadgets pricing",
+    "rank": 1,
+    "url": "https://bolt-gadgets.example/plans",
+    "title": "Bolt Gadgets plans",
+    "snippet": "Basic is 12 dollars per seat, billed yearly.",
+    "ts": "2026-11-14T12:00:00Z"
+  },
+  {
+    "query": "Acme Widgets",
+    "rank": 1,
+    "url": "https://acme-widgets.example/",
+    "title": "Acme Widgets",
+    "snippet": "Scheduling that stays out of your way.",
+    "ts": "2026-11-14T12:00:00Z"
+  },
+  {
+    "query": "Bolt Gadgets",
+    "rank": 1,
+    "url": "https://bolt-gadgets.example/",
+    "title": "Bolt Gadgets",
+    "snippet": "The enterprise scheduling platform.",
+    "ts": "2026-11-14T12:00:00Z"
+  },
+  {
+    "query": "best team scheduling software",
+    "rank": 2,
+    "url": "https://acme-widgets.example/",
+    "title": "Acme Widgets",
+    "snippet": "Shared calendars for small support teams.",
+    "ts": "2026-11-14T12:00:00Z"
+  },
+  {
+    "query": "best team scheduling software",
+    "rank": 4,
+    "url": "https://bolt-gadgets.example/",
+    "title": "Bolt Gadgets",
+    "snippet": "Control every shift from one console.",
+    "ts": "2026-11-14T12:00:00Z"
+  }
+]

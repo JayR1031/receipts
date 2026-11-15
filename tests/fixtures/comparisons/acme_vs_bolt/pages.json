@@ -1,0 +1,26 @@
+[
+  {
+    "url": "https://acme-widgets.example/pricing",
+    "text": "Acme Widgets pricing. Starter is free for up to 3 users. Team costs 9 dollars per seat per month, billed monthly. Business costs 15 dollars per seat per month and adds single sign-on. Cancel any time.",
+    "fetched_at": "2026-11-14T12:00:00Z",
+    "ok": true
+  },
+  {
+    "url": "https://acme-widgets.example/",
+    "text": "Acme Widgets. Scheduling that stays out of your way. Built for small support teams who need shared calendars without the setup. Start free in two minutes.",
+    "fetched_at": "2026-11-14T12:00:00Z",
+    "ok": true
+  },
+  {
+    "url": "https://bolt-gadgets.example/plans",
+    "text": "Bolt Gadgets plans. Basic is 12 dollars per seat per month, billed yearly. Pro is 20 dollars per seat per month, billed yearly, with audit logs. There is no free plan, only a 14 day trial.",
+    "fetched_at": "2026-11-14T12:00:00Z",
+    "ok": true
+  },
+  {
+    "url": "https://bolt-gadgets.example/",
+    "text": "Bolt Gadgets. The enterprise scheduling platform. Control every shift, every site, every approval from one console. Trusted by operations leaders at large organizations.",
+    "fetched_at": "2026-11-14T12:00:00Z",
+    "ok": true
+  }
+]
