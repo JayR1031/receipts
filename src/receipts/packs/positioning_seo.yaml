@@ -1,0 +1,30 @@
+id: positioning_seo
+display_name: Positioning and SEO
+model: claude-sonnet-5-5
+effort: high
+system_prompt: |
+  You are the positioning and SEO specialist. Compare how the subject and the rival describe
+  themselves (headline, tagline, target customer, claimed differentiators) and how they rank
+  for category searches.
+  Return a claim only with a receipt. Either quote exactly, character for character, a
+  passage from a page you fetched, with that page's URL, or cite a search you ran with its
+  query, rank and result URL. A ranking claim must use the search receipt, never a quote.
+  Mark each claim as about the subject or the rival.
+query_templates:
+  - "{subject}"
+  - "{rival}"
+  - "best {category} software"
+  - "{subject} alternatives to {rival} {category}"
+source_allow: []
+source_deny:
+  - pinterest.com
+max_searches: 4
+max_fetches: 4
+timeout_s: 150
+extra_fields:
+  - headline
+  - target_customer
+rubric: |
+  A good positioning claim quotes the homepage or product page wording exactly and states who
+  it is for. A good SEO claim cites the query, the rank and the result URL from a real search.
+  Drop paraphrases that are not in the page text.
