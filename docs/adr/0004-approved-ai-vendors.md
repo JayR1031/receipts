@@ -4,8 +4,8 @@
 
 > **Correction, 2026-11-15 (W3, PR #50):** the builder roles in the Anthropic, Mel and OpenAI Codex rows
 > now match the record. Claude Code built W0 and lanes L1 to L6 (L4 in PR #27, L5 in PR #26); Codex
-> built no lane (issue #16, L4, is titled "(Claude Code)"), and the owner used its desktop app to
-> generate the Receipts logo; Mel drafted and builds UI follow-ups.
+> built no lane (issue #16, L4, is titled "(Claude Code)"), and the owner used its desktop app (covered
+> by the `openai` approval) to generate the Receipts logo; Mel drafted and builds UI follow-ups.
 
 ## Context
 
@@ -32,7 +32,7 @@ Added 2026-11-14 (issue #1). Each row says what leaves the repo or the running a
 | Render | Hosts the container (ADR-0005) | The built image, its environment secrets, and everything the running app handles: comparison inputs, run data on its way to Neon, and request logs |
 | Vercel | Hosts the landing page (lane L6, ADR-0005) | The landing page's own repository and build; no code from this repository and no run data |
 | Mel (desktop agentic terminal) | Drafted the demo script, an architecture diagram and the submission text, and builds UI follow-ups in lane L5 (`ui/`), such as #40 (PR #47). Lane L5 itself was built by Claude Code (issue #17) | Repository code; Mel runs on an OpenAI key (an approved vendor, set 2026-11-14). Switching Mel to another vendor needs that vendor added to the approved list first |
-| OpenAI Codex, CLI and desktop app (approved vendor) | Built no lane: L4 (`db/`, `api/`) was built by Claude Code (PR #27). On 2026-11-15 the owner used the Codex desktop app to generate the Receipts logo, now in the landing page and the app | The owner's logo request. No repository code so far: no commit carries a Codex co-author line |
+| OpenAI Codex, CLI and desktop app (approved vendor) | Built no lane: L4 (`db/`, `api/`) was built by Claude Code (PR #27). On 2026-11-15 the owner used the Codex desktop app to generate the Receipts logo, now in the landing page and the app | The owner's logo request. No repository code, on the owner's word (2026-11-15, 19:29 UTC) |
 | OpenAI API (approved vendor) | Backup LLM for the voice agent, through ElevenLabs (issue #37) | When the primary and first backup models are unavailable: voice-agent transcripts and tool results |
 | FAL | Generates the submission's OG image (the link-preview picture) via the Skillry `bs-duolingo-style-og` skill | One headline, the product name and a one-line context; no code or run data |
 | Skillry | Distributes that skill | Nothing from this repo; installs files under `~/.claude/skills` |
@@ -46,7 +46,7 @@ Added 2026-11-14 (issue #1). Each row says what leaves the repo or the running a
 The orchestrator reads this file before routing a task to a model.
 
 - anthropic — Claude family; default for planning, orchestration and implementation in this kit
-- openai — GPT family and Codex CLI
+- openai — GPT family and Codex (CLI and desktop app)
 
 ## Alternatives considered
 

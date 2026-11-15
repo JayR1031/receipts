@@ -222,7 +222,7 @@ lower-cased, whitespace collapsed.
 - **The claim has to match its quote:** every value in the claim must also be in its quote: a price written with a currency sign (`$20`, `€5`), a percentage, a decimal, or a number with a thousands separator. A quote proves only what it says.
 - **Equivalences:** commas that separate thousands are ignored, so `1,000` equals `1000` (a decimal comma such as `19,99` is kept). `$20.00` equals `$20`, and `20 percent` equals `20%`.
 
-The rules have known limits. Issue #45 tracks the first seven; the last is by design and is
+The rules have known limits. Issue #45 tracks all but the last; the last is by design and is
 described in `rules.py`'s docstring:
 - Plan labels next to a price are not checked.
 - Bare-integer counts (`500 credits`) and prices with no sign attached (`25 dollars`, `25 USD`,
