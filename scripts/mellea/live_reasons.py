@@ -3,8 +3,7 @@
 Runs the real Anthropic model and Keenable clients, so it spends model and search credits. Each
 run uses a fresh temporary SQLite repo (never the Neon database) and the verifier and Mellea
 repair loop of the checkout it runs in. Prints one line per run: mode, run_id, UTC start,
-verified/total, dropped, wall seconds, and the per-domain `claim repair:` log lines (repairs-on
-runs only). Also prints each dropped claim with its reason.
+verified/total, dropped and wall seconds. Also prints each dropped claim with its reason.
 The README's `run-3cc9b768f440` came from this script.
 Keys come from the environment (`ANTHROPIC_API_KEY`, `KEENABLE_API_KEY`); none is printed.
 
