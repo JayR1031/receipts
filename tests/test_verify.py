@@ -488,17 +488,21 @@ def test_fuzzy_quote_whose_numbers_sit_where_the_page_has_them_verifies(
         "first-price-before-the-window-dots",
     ],
 )
-def test_fuzzy_quote_whose_first_or_last_number_is_outside_the_score_window_verifies(
+def test_known_limit_quote_whose_first_or_last_number_is_outside_the_score_window_fails_closed(
     text: str, quote: str
 ) -> None:
-    # gh-33 round-3 judge HIGH #1: partial_ratio's window is len(quote) characters, so when the
-    # page text is longer than the quote, the quote's last number can fall past the window's end,
-    # or, when the window slides right, its first number before the window's start. These true
-    # quotes verify on main; the aligned check must reach those numbers too (both sides widen).
+    # Known limit, accepted by the owner (gh-33 round-3 judge HIGH #1; module docstring):
+    # partial_ratio's window is at most len(quote) characters, so when the page text is longer
+    # than the quote, the quote's last number can fall past the window's end, or its first number
+    # before the window's start. These true quotes verify on main and are misses here: a true
+    # claim shows as unverified, never the reverse. Widening the window (attempts 4 and 5) let
+    # wrong prices verify in other shapes, so the owner chose these rules.
     url = "https://tokens.example/"
     pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
     out = verify_claim(quote_claim(url, quote), pages, [])
-    assert (out.verified, out.verify_method) == (True, "quote_fuzzy")
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note is not None
+    assert out.verify_note.startswith("quote not found on page: numbers differ (quote has ")
 
 
 @pytest.mark.parametrize(
@@ -537,10 +541,9 @@ def test_quote_price_spread_over_two_page_prices_is_a_miss(
     text: str, quote: str, note: str
 ) -> None:
     # Main verifies all four: the quote gives one plan the next plan's price, a short label away.
-    # The quote's price is aligned with the page's price at that place ($14 for "team"). Under a
-    # fixed quarter-of-the-quote pad (repair 3) the alignment spread the quote's "$9" over "$14,
-    # pro $9"; the slack pad does not reach that far here, and the exactly-one rule is pinned by
-    # the next test.
+    # The quote's price is aligned with the page's price at that place ($14 for "team"), and the
+    # note names it. (A window widened by a quarter of the quote, tried in attempt 4, spread the
+    # quote's "$9" over "$14, pro $9" and needed an extra rule.)
     url = "https://tokens.example/"
     pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
     out = verify_claim(quote_claim(url, quote), pages, [])
@@ -554,7 +557,7 @@ def test_quote_price_spread_over_two_page_prices_is_a_miss(
             "unlimited single logs each yearly member audit the includes organisation with: "
             "plus $29; max $49.",
             "unlimited logs each yearly member audit includes organisation with: plus $49",
-            "quote not found on page: numbers differ (quote has $49; page has $29, $49 there; "
+            "quote not found on page: numbers differ (quote has $49; page has $29 there; "
             "partial_ratio=90.8)",
         ),
         (
@@ -562,19 +565,20 @@ def test_quote_price_spread_over_two_page_prices_is_a_miss(
             "logs whole: pro $49 / max $99.",
             "priority member billed unlimited monthly team with the plan sign-on on logs whole: "
             "pro $99",
-            "quote not found on page: numbers differ (quote has $99; page has $49, $99 there; "
+            "quote not found on page: numbers differ (quote has $99; page has $49 there; "
             "partial_ratio=92.2)",
         ),
     ],
     ids=["semicolon", "slash"],
 )
-def test_quote_price_spread_over_two_page_prices_needs_exactly_one_page_number(
+def test_quote_that_left_words_out_meets_this_plans_price_not_the_next_plans(
     text: str, quote: str, note: str
 ) -> None:
-    # Attempt 5: these quotes leave words out earlier, so the slack is large enough for the
-    # alignment to spread the quote's price over this plan's price and the next plan's equal one.
-    # Only the exactly-one rule stops them (a membership test verifies both). The text comes
-    # from a random spread test (seed 1), kept verbatim; main verifies both.
+    # These quotes leave words out earlier and give one plan the next plan's price. The quote's
+    # price is aligned with this plan's price at that place, so the note names it. Under a window
+    # widened by the left-out characters (attempt 5) the alignment spread the price over both
+    # plans' prices, and only an extra exactly-one rule stopped them. The text comes from a
+    # random spread test (seed 1), kept verbatim; main verifies both.
     url = "https://tokens.example/"
     pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
     out = verify_claim(quote_claim(url, quote), pages, [])
@@ -608,9 +612,9 @@ def test_quote_price_does_not_reach_past_the_pages_own_price_to_the_next_plans(
     text: str, quote: str
 ) -> None:
     # gh-33 round-4 judge HIGH #1: at the quote price's place the page has a word ("custom",
-    # "free") or a price sharing no character with it ("€14" against "$9"). With a fixed pad of a
-    # quarter of the quote (repair 3) the alignment reached past it to the next plan's equal
-    # price and verified; main verifies all three. The slack pad stops short of it.
+    # "free") or a price sharing no character with it ("€14" against "$9"). With a window widened
+    # by a quarter of the quote (attempt 4) the alignment reached past it to the next plan's
+    # equal price and verified; main verifies all three. The bare score window stops short.
     url = "https://tokens.example/"
     pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
     out = verify_claim(quote_claim(url, quote), pages, [])
@@ -639,10 +643,43 @@ def test_quote_price_does_not_reach_past_the_pages_own_price_to_the_next_plans(
 def test_quote_that_left_words_out_still_stops_at_the_pages_own_price(
     text: str, quote: str
 ) -> None:
-    # Attempt 5: these quotes change or leave out a word ("each" for "every", "whole"), so their
-    # slack is a few characters. The slack is just short of reaching past the page's own price
-    # (a word price or a price sharing no character) to the next plan's equal price; twice the
-    # slack reaches it, and the wrong price verifies (sabotage W8).
+    # These quotes change or leave out a word ("each" for "every", "whole") and give one plan
+    # the next plan's price, past a word price or a price sharing no character. The bare score
+    # window does not reach the next plan's price. A window widened by twice the left-out
+    # characters reached it (attempt 5's sabotage W8), and main verifies two of the three.
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note is not None
+    assert out.verify_note.startswith("quote not found on page: numbers differ (quote has ")
+
+
+@pytest.mark.parametrize(
+    ("text", "quote"),
+    [
+        (
+            "Basic plan for every seat on the team is $14. Pro plan is $9 per seat.",
+            "Basic plan for every seat on the team is $9",
+        ),
+        ("Our Basic plan costs $14 per seat; Pro costs $9.", "Our Basic plan costs $9 per seat"),
+        ("Team plan: $12 a month. Pro: $15 a month.", "Team plan: $15 a month"),
+        (
+            "Starter $5 per seat billed yearly, Team $12 per seat billed yearly, Business $15 "
+            "per seat",
+            "Starter $5 per seat billed yearly, Team $15 per seat billed yearly",
+        ),
+    ],
+    ids=[
+        "next-plans-price-after-a-long-quote",
+        "next-plans-price-semicolon",
+        "next-plans-price-short",
+        "next-plans-price-mid-row",
+    ],
+)
+def test_quote_price_does_not_skip_the_pages_price_to_the_next_plans(text: str, quote: str) -> None:
+    # Each quote gives one plan the next plan's equal price. The price at the quote's place is the
+    # page's own, so each is a miss; main verifies them.
     url = "https://tokens.example/"
     pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
     out = verify_claim(quote_claim(url, quote), pages, [])
@@ -657,40 +694,21 @@ def test_quote_that_left_words_out_still_stops_at_the_pages_own_price(
         ("Basic $200 Pro $15 Max $12", "Basic $200 Pro Max $15"),
         ("Basic $19.99 Pro 20% Max $200", "Basic $19.99 Pro Max 20%"),
         ("Basic $180 Pro $12 Max $29", "Basic $180 Pro Max $12"),
-        (
-            "Basic plan for every seat on the team is $14. Pro plan is $9 per seat.",
-            "Basic plan for every seat on the team is $9",
-        ),
-        ("Our Basic plan costs $14 per seat; Pro costs $9.", "Our Basic plan costs $9 per seat"),
-        ("Team plan: $12 a month. Pro: $15 a month.", "Team plan: $15 a month"),
-        (
-            "Starter $5 per seat billed yearly, Team $12 per seat billed yearly, Business $15 "
-            "per seat",
-            "Starter $5 per seat billed yearly, Team $15 per seat billed yearly",
-        ),
     ],
-    ids=[
-        "label-left-out-max-15",
-        "label-left-out-max-20pct",
-        "label-left-out-max-12",
-        "next-plans-price-after-a-long-quote",
-        "next-plans-price-semicolon",
-        "next-plans-price-short",
-        "next-plans-price-mid-row",
-    ],
+    ids=["max-15", "max-20pct", "max-12"],
 )
-def test_wider_alignment_does_not_pair_a_price_with_another_plans(text: str, quote: str) -> None:
-    # The first three are the gh-33 round-2 body claims check's counter-examples: on 7363a43 the
-    # alignment dropped "max" and paired the quote's last price with Pro's (verified at 90.0).
-    # Aligning against the wider window lets "max" align, so the price meets Max's. The last four
-    # are misses because the price at that place is the page's own; the word-price test above is
-    # the one a larger pad turns red (round-4 judge MEDIUM #4).
+def test_known_limit_a_dropped_plan_label_attaches_another_plans_price(
+    text: str, quote: str
+) -> None:
+    # Known limit, accepted by the owner (module docstring; tracked in GitHub issue #45): only
+    # numbers are compared, not plan labels. These quotes drop "max", the alignment pairs the
+    # quote's last price with Pro's, and the wrong price verifies (as on main). They are the
+    # gh-33 round-2 body claims check's counter-examples. This test pins the limit so a fix to
+    # it updates the record too.
     url = "https://tokens.example/"
     pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
     out = verify_claim(quote_claim(url, quote), pages, [])
-    assert (out.verified, out.verify_method) == (False, None)
-    assert out.verify_note is not None
-    assert out.verify_note.startswith("quote not found on page: numbers differ (quote has ")
+    assert (out.verified, out.verify_method) == (True, "quote_fuzzy")
 
 
 @pytest.mark.parametrize(
@@ -705,7 +723,7 @@ def test_wider_alignment_does_not_pair_a_price_with_another_plans(text: str, quo
         (
             "Every seat on the Basic plan is billed yearly at $14",
             "Every seat on the Basic plan is billed yearly at 9",
-            "quote not found on page: numbers differ (quote has 9; page has $14 there; "
+            "quote not found on page: numbers differ (quote has 9; page has no number there; "
             "partial_ratio=99.0)",
         ),
         (
@@ -715,14 +733,13 @@ def test_wider_alignment_does_not_pair_a_price_with_another_plans(text: str, quo
             "partial_ratio=91.6)",
         ),
     ],
-    ids=["quote-order-kept", "gap-reaches-the-window-end", "known-limit-words-left-out"],
+    ids=["quote-order-kept", "known-limit-gap-past-the-window", "known-limit-words-left-out"],
 )
 def test_numbers_differ_note_exact(text: str, quote: str, note: str) -> None:
-    # gh-33 round-3 judge LOW #2: the pairs stay in quote order (not sorted), and a number with
-    # no matched character reads the page up to the window's end. The last case pins a known
-    # limit (module docstring): this quote leaves out more page text ("with priority support")
-    # than the wider window covers, so its last price is not reached, and the note says "no
-    # number there" although the page has $200 further on. It fails closed.
+    # gh-33 round-3 judge LOW #2: the pairs stay in quote order (not sorted). The other two
+    # cases pin the fail-closed known limit (module docstring): the quote's last number falls
+    # past the score window, so the note says "no number there" although the page has the price
+    # just past it ($14; $200 after "with priority support"). Both fail closed.
     url = "https://tokens.example/"
     pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
     out = verify_claim(quote_claim(url, quote), pages, [])
