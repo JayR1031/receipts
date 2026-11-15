@@ -216,8 +216,9 @@ def test_fuzzy_quote_with_matching_numbers_still_verifies() -> None:
 def test_fuzzy_quote_number_token_must_match_verbatim(
     text: str, quote: str, missing: str, page_has: str
 ) -> None:
-    # Owner ruling 2026-11-15: every number token (digits with currency sign, decimal point
-    # or %) in a fuzzy quote must be on the page verbatim; bare digit runs are not enough.
+    # Coordinator ruling 2026-11-15 01:11 UTC (plan file): every number token (digits with a
+    # currency sign, decimal point or %) in a fuzzy quote must be on the page verbatim; bare
+    # digit runs are not enough.
     url = "https://tokens.example/"
     pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
     out = verify_claim(quote_claim(url, quote), pages, [])
@@ -453,10 +454,181 @@ def test_fuzzy_quote_whose_numbers_sit_where_the_page_has_them_verifies(
     assert (out.verified, out.verify_method) == (True, "quote_fuzzy")
 
 
+@pytest.mark.parametrize(
+    ("text", "quote"),
+    [
+        (
+            "Basic $15 /mo · Lite $12 /mo · Growth $100 per user · Business $10.",
+            "Basic $15 /mo; Lite $12 /mo; Growth $100 per user; Business $10",
+        ),
+        (
+            "Compare plans. Plus 20% billed monthly. Basic $200.",
+            "Compare plans. Plus billed monthly. Basic $200",
+        ),
+        (
+            "Pricing: Max $20 per month; Business $1 per user; Pro $199; Plus $10.",
+            "Pricing: Max $20 per month; Business $1 per user; Pro; Plus $10",
+        ),
+        (
+            "Business $12 per user; Lite $20 per seat; Basic $15 billed yearly; Growth $18 /mo.",
+            "Business $12; Lite $20 per seat; Basic $15 billed yearly; Growth $18 /mo",
+        ),
+        (
+            "Lite $29 per year · Team $99 /yr · Basic $10 per month · Starter $1 a month · "
+            "Scale $15 a month.",
+            "Lite $29 · Team $99 /yr · Basic $10 per month · Starter $1 a month · "
+            "Scale $15 a month",
+        ),
+    ],
+    ids=[
+        "separators-only",
+        "page-number-left-out",
+        "left-out-then-the-last-price",
+        "first-price-before-the-window",
+        "first-price-before-the-window-dots",
+    ],
+)
+def test_fuzzy_quote_whose_first_or_last_number_is_outside_the_score_window_verifies(
+    text: str, quote: str
+) -> None:
+    # gh-33 round-3 judge HIGH #1: partial_ratio's window is len(quote) characters, so when the
+    # page text is longer than the quote, the quote's last number can fall past the window's end,
+    # or, when the window slides right, its first number before the window's start. These true
+    # quotes verify on main; the aligned check must reach those numbers too (both sides widen).
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method) == (True, "quote_fuzzy")
+
+
+@pytest.mark.parametrize(
+    ("text", "quote", "note"),
+    [
+        (
+            "Every seat on the Team plan includes priority support and audit logs: "
+            "team $14, pro $9.",
+            "Every seat on the Team plan includes priority support and audit logs: team $9",
+            "quote not found on page: numbers differ (quote has $9; page has $14, $9 there; "
+            "partial_ratio=99.3)",
+        ),
+        (
+            "All plans include unlimited projects and single sign-on for every member. "
+            "Team $14 / Pro $9",
+            "All plans include unlimited projects and single sign-on for every member. Team $9",
+            "quote not found on page: numbers differ (quote has $9; page has $14, $9 there; "
+            "partial_ratio=99.4)",
+        ),
+        (
+            "Monthly billing for the whole organisation with priority support: Basic $19, Pro $29.",
+            "Monthly billing for the whole organisation with priority support: Basic $29",
+            "quote not found on page: numbers differ (quote has $29; page has $19, $29 there; "
+            "partial_ratio=98.7)",
+        ),
+        (
+            "Pricing for teams of any size, billed monthly per active member: Team $12 or Pro $15",
+            "Pricing for teams of any size, billed monthly per active member: Team $15",
+            "quote not found on page: numbers differ (quote has $15; page has $12, $15 there; "
+            "partial_ratio=99.3)",
+        ),
+    ],
+    ids=["comma", "slash", "comma-basic-pro", "or"],
+)
+def test_quote_price_spread_over_two_page_prices_is_a_miss(
+    text: str, quote: str, note: str
+) -> None:
+    # Repair 3: the alignment can match a quote price's characters across two page prices with a
+    # short label between them ("$" of $14 and "9" of $9). The page must hold exactly one number
+    # at that place, and it must be the quote's; otherwise the wrong plan's price verifies (main
+    # verifies all four).
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method, out.verify_note) == (False, None, note)
+
+
+@pytest.mark.parametrize(
+    ("text", "quote"),
+    [
+        ("Basic $200 Pro $15 Max $12", "Basic $200 Pro Max $15"),
+        ("Basic $19.99 Pro 20% Max $200", "Basic $19.99 Pro Max 20%"),
+        ("Basic $180 Pro $12 Max $29", "Basic $180 Pro Max $12"),
+        (
+            "Basic plan for every seat on the team is $14. Pro plan is $9 per seat.",
+            "Basic plan for every seat on the team is $9",
+        ),
+        ("Our Basic plan costs $14 per seat; Pro costs $9.", "Our Basic plan costs $9 per seat"),
+        ("Team plan: $12 a month. Pro: $15 a month.", "Team plan: $15 a month"),
+        (
+            "Starter $5 per seat billed yearly, Team $12 per seat billed yearly, Business $15 "
+            "per seat",
+            "Starter $5 per seat billed yearly, Team $15 per seat billed yearly",
+        ),
+    ],
+    ids=[
+        "label-left-out-max-15",
+        "label-left-out-max-20pct",
+        "label-left-out-max-12",
+        "next-plans-price-after-a-long-quote",
+        "next-plans-price-semicolon",
+        "next-plans-price-short",
+        "next-plans-price-mid-row",
+    ],
+)
+def test_wider_alignment_does_not_pair_a_price_with_another_plans(text: str, quote: str) -> None:
+    # The first three are the gh-33 round-2 body claims check's counter-examples: on 7363a43 the
+    # alignment dropped "max" and paired the quote's last price with Pro's (verified at 90.0).
+    # Aligning against the wider window lets "max" align, so the price meets Max's. The last four
+    # guard the wider window itself: the quote's price must not skip the page's price at that
+    # place to reach an equal price further on.
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note is not None
+    assert out.verify_note.startswith("quote not found on page: numbers differ (quote has ")
+
+
+@pytest.mark.parametrize(
+    ("text", "quote", "note"),
+    [
+        (
+            "Pro: $19/month or $199/year.",
+            "Pro: $199/month or $19/year",
+            "quote not found on page: numbers differ (quote has $199, $19; page has $19, $199 "
+            "there; partial_ratio=96.3)",
+        ),
+        (
+            "Every seat on the Basic plan is billed yearly at $14",
+            "Every seat on the Basic plan is billed yearly at 9",
+            "quote not found on page: numbers differ (quote has 9; page has $14 there; "
+            "partial_ratio=99.0)",
+        ),
+        (
+            "Pro is $20 a month, and the Max plan with priority support is $200.",
+            "Pro is $20 a month, and the Max plan is $200",
+            "quote not found on page: numbers differ (quote has $200; page has no number there; "
+            "partial_ratio=91.6)",
+        ),
+    ],
+    ids=["quote-order-kept", "gap-reaches-the-window-end", "known-limit-words-left-out"],
+)
+def test_numbers_differ_note_exact(text: str, quote: str, note: str) -> None:
+    # gh-33 round-3 judge LOW #2: the pairs stay in quote order (not sorted), and a number with
+    # no matched character reads the page up to the window's end. The last case pins a known
+    # limit (module docstring): this quote leaves out more page text ("with priority support")
+    # than the wider window covers, so its last price is not reached, and the note says "no
+    # number there" although the page has $200 further on. It fails closed.
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method, out.verify_note) == (False, None, note)
+
+
 def test_quote_that_drops_the_page_currency_sign_is_a_miss_with_an_accurate_note() -> None:
     # gh-33 judge MEDIUM #4. The page says "$20"; the quote says "20". The currency sign is part
-    # of the number token (owner ruling 2026-11-15, `currency-sign` case above), so "20" cuts the
-    # page's "$20" and the quote is a miss. The note says what the page has, not "20 not on page".
+    # of the number token (coordinator ruling 2026-11-15, `currency-sign` case above), so "20"
+    # cuts the page's "$20" and the quote is a miss. The note says what the page has, not "20 not
+    # on page".
     url = "https://tokens.example/"
     pages = {url: FetchedPage(url=url, text="Pro costs $20 per month.", fetched_at=T0, ok=True)}
     out = verify_claim(quote_claim(url, "20 per month"), pages, [])

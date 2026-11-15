@@ -12,12 +12,16 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   match must cover the *whole quote* (`partial_ratio_alignment`'s span over the quote is
   `[0, len(quote))`); otherwise a page shorter than the quote would match inside the quote and
   "verify" text that is not on the page.
-* **Numbers must match where the quote matches.** Sources: for the fuzzy path, the project
-  owner's ruling of 2026-11-15 (a deliberate tightening of the spec's `partial_ratio >= 90` rule,
-  scoped to fuzzy matches), with the per-place comparison from the gh-33 round-2 judge's HIGH #1
-  (a set test over the match window let swapped prices verify); for the exact path, the L2
-  judge's LOW 7 and the gh-33 judge's HIGH #1, with the edge rule set by the coordinating
-  session (not an owner ruling). A number
+* **Numbers must match where the quote matches.** Sources, all from Claude Code sessions, none an
+  owner ruling:
+  - Fuzzy path: the coordinating session's ruling of 2026-11-15 01:11 UTC (the plan file's
+    "Coordinator rulings"; a deliberate tightening of the spec's `partial_ratio >= 90` rule).
+  - The per-place comparison: the gh-33 round-2 judge's HIGH #1 (a set test over the match
+    window let swapped prices verify). The wider window: the round-3 judge's HIGH #1.
+  - Exact path: the L2 judge's LOW 7 and the gh-33 judge's HIGH #1, with the edge rule set by
+    the coordinating session.
+
+  A number
   token is the regex `[$€£¥]?\\d+(?:[.,]\\d+)*%?` on the normalized text; `19.99` is one token,
   never split, and the currency sign and `%` are part of it. Tokens compare after
   `_canonical_number`: thousands-separator commas removed (a comma followed by exactly three
@@ -31,20 +35,36 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
     `20 per month` inside `$20 per month` are all cuts. Every occurrence is tried, so the same
     text with a whole number elsewhere on the page still counts. A quote with no clean
     occurrence falls through to the fuzzy rule.
-  - **Fuzzy path**: every number token of the quote must be the page's number token *at the
-    same place in the match*, not merely somewhere on the page or somewhere in the match
-    window. The place comes from the character alignment behind the score (`Indel.opcodes`
-    of the quote against the alignment's `dest_*` window), and each page token is read whole
-    even when the alignment cuts it. So `pro yearly: $19` against
-    `pro yearly: $199. pro monthly: $19.` is a miss, and so are quotes that swap the page's
-    prices (`pro yearly: $19. pro monthly: $199.`), repeat one, or leave one out so that the
-    next lines up with another plan's. A quote may leave a page number out; the numbers it
-    does carry must each sit where the page has them. The note pairs each differing quote
-    number with the page's, in quote order:
+  - **Fuzzy path**: each number token of the quote is compared with the page text at its
+    aligned place, not with the whole page or the whole match window. The place comes from
+    `Indel.opcodes`, the character alignment behind the score, of the quote against the score
+    window widened by a quarter of the quote's length on each side (`_widened`: a score of 90
+    lets the matched page text run about 22% longer than the quote). There the page must have
+    exactly one number token, read whole even when the alignment cuts it, and it must equal the
+    quote's. So all of these are misses:
+    - `pro yearly: $19 billed` on `pro yearly: $199 billed. pro monthly: $19 billed.`;
+    - quotes that swap the page's prices (`pro yearly: $19. pro monthly: $199.` on
+      `pro yearly: $199. pro monthly: $19.`) or repeat one;
+    - a quote price whose characters the alignment spreads over two page prices (`team $9` on
+      `team $14, pro $9`).
+
+    The note pairs each differing quote number with what the page has there, in quote order:
     `numbers differ (quote has $19, $199; page has $199, $19 there; ...)`.
-  A one-digit price change scores ~97, and a battlecard must never show a wrong number as
-  verified. `normalize` keeps `$ € £ % . ,` next to digits, so the token regex runs on the
-  normalized strings.
+  - **Known limit, labels are not checked (fail-open; also on `main`):** only numbers are
+    compared, so a changed or dropped plan name next to a price can attach another plan's real
+    price. For example, `tier b: $29` verifies on `tier a: $29 ... tier b: $19`, and
+    `basic $200 pro max $1,999` verifies on `basic $200 pro $1,999 max $8`: the alignment drops
+    `max` because pairing the longer `$1,999` matches more characters. Tracked in GitHub issue
+    #45.
+  - **Known limit, large elisions fail closed:** a quote that leaves out more page text than
+    the widening covers can have its first or last number aligned with no page number. Then it
+    is a miss, and the note says `page has no number there`, although the page has the number
+    further on. For example, `the max plan is $200` on
+    `the max plan with priority support is $200`. Tracked in #45.
+
+  A one-digit price change scores ~97. The aim is that a battlecard never shows a wrong number
+  as verified; the known limits in this docstring are the exceptions. `normalize` keeps
+  `$ € £ % . ,` next to digits, so the token regex runs on the normalized strings.
 * **Claim numbers must be in the quote** (GitHub issue #33): once the quote is on the page
   (`quote_exact` or `quote_fuzzy`), every **value token** in the normalized `claim.text` must
   also be a number token of the normalized quote, compared as above. A value token is a number
@@ -305,14 +325,29 @@ def _aligned_range(
     return (before[-1] + 1 if before else 0), (after[0] if after else size)
 
 
+def _widened(start: int, end: int, size: int, limit: int) -> tuple[int, int]:
+    """The score window `[start, end)` widened by a quarter of the quote's `size` on each side.
+
+    `partial_ratio` scores a window exactly `len(quote)` long, but the page text a quote matches
+    can be longer: with nothing deleted, a score of 90 allows `2 * size / 9` inserted page
+    characters (Indel: `1 - ins / (2 * size + ins) >= 0.9`), about 22% of the quote. A quarter on
+    each side covers that, so a quote's first and last numbers are aligned with the page's.
+    Clipped to the page, `[0, limit)`.
+    """
+    pad = size // 4 + 1
+    return max(0, start - pad), min(limit, end + pad)
+
+
 def _number_mismatches(
     quote: str, body: str, spans: Sequence[tuple[int, int]], window: tuple[int, int]
 ) -> list[tuple[str, str]]:
     """`(quote token, page tokens there)` for each quote number the page lacks at that place.
 
-    `window` is the alignment's `dest_*` span of `body`. Each quote number token is compared with
-    the page number tokens aligned to it (read whole by `_numbers_at`), so a quote that swaps,
-    repeats or shifts the page's prices is a miss even though every price is in the window.
+    `window` is the span of `body` the quote is aligned against (`_widened`). Each quote number
+    token must meet exactly one page number token at its aligned place (read whole by
+    `_numbers_at`), and that token must be equal. So a quote that swaps, repeats or shifts the
+    page's prices is a miss even though every price is in the window, and so is a quote price
+    whose characters the alignment spread over two page prices (`$9` across `$14, pro $9`).
     Pairs are in quote order and deduplicated; the page side is `no number` when there is none.
     """
     offset, stop = window
@@ -321,7 +356,7 @@ def _number_mismatches(
     for match in _NUMBER_TOKEN.finditer(quote):
         lo, hi = _aligned_range(char_map, *match.span(), stop - offset)
         there = _numbers_at(body, spans, offset + lo, offset + hi)
-        if _missing_numbers([match.group()], there):
+        if len(there) != 1 or _missing_numbers([match.group()], there):
             pair = (match.group(), ", ".join(there) or "no number")
             if pair not in pairs:
                 pairs.append(pair)
@@ -342,7 +377,7 @@ def _fuzzy_miss(quote: str, body: str, spans: Sequence[tuple[int, int]]) -> str 
     score = 0.0 if alignment is None else alignment.score
     if alignment is None or score < FUZZY_THRESHOLD:
         return f"quote not found on page: best partial_ratio={score:.1f} < {FUZZY_THRESHOLD}"
-    window = (alignment.dest_start, alignment.dest_end)
+    window = _widened(alignment.dest_start, alignment.dest_end, len(quote), len(body))
     mismatches = _number_mismatches(quote, body, spans, window)
     if mismatches:
         # Name what the page says there: "$19 not on page" is false when "$19" is on the page
