@@ -69,8 +69,9 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
     - 2 of the 109,249 wrong-price quotes among 160,000 generated on two- to four-price pages
       (`7363a43`: 22);
     - 22 of 7,439 misquotes on pages whose own price at the quote's place is a word or a
-      different price. The bare score window already sits on the next plan's text, with the
-      quote's label aligned to that plan's (`7363a43`, without the widening: the same 22).
+      different price. The bare score window already sits on another plan's text (the next
+      plan's in 21 of the 22), with the quote's label aligned to that plan's (`7363a43`,
+      without the widening: the same 22).
 
     Tracked in GitHub issue #45.
   - **Known limit, a price carried past the page's own price (fail-open):** the widened
