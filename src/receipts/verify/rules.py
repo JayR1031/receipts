@@ -11,11 +11,13 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   `rapidfuzz.fuzz.partial_ratio >= FUZZY_THRESHOLD` is `quote_fuzzy`, else a miss. The fuzzy
   match must cover the *whole quote* (`partial_ratio_alignment`'s span over the quote is
   `[0, len(quote))`); otherwise a page shorter than the quote would match inside the quote and
-  "verify" text that is not on the page. **Numbers must match** (deliberate tightening of the
-  spec's `partial_ratio >= 90` rule): every maximal digit run in the normalized quote must
-  appear as a digit run somewhere in the normalized page, else the fuzzy match is a miss. A
-  one-digit price change scores ~97, and a battlecard must never show a wrong number as
-  verified. Exact substring matches already contain their numbers and are unaffected.
+  "verify" text that is not on the page. **Numbers must match** (project owner's ruling,
+  2026-11-15, a deliberate tightening of the spec's `partial_ratio >= 90` rule): "a
+  `quote_fuzzy` match also requires every number token in the quote (digits, with any currency
+  sign, decimal point or %) to appear verbatim in the normalized page text; otherwise the claim
+  is not verified. Exact-substring matches are unaffected." A one-digit price change scores
+  ~97, and a battlecard must never show a wrong number as verified. `normalize` keeps `$ € £ %
+  . ,` next to digits, so the token regex runs on the normalized strings.
 * `SearchReceipt`: verified (`search_log`) iff a logged `SearchResult` has the same `query`,
   `url` and `rank`. A query that was never logged this run is **dropped**; a logged query whose
   rows do not contain that url/rank is a miss.
@@ -63,7 +65,7 @@ _STAR = re.compile(r"\*")
 # strips _em_ and __strong__, keeps snake_case
 _UNDERSCORE_EMPHASIS = re.compile(r"(?<!\w)_+|_+(?!\w)")
 _WHITESPACE = re.compile(r"\s+")
-_DIGIT_RUN = re.compile(r"\d+")
+_NUMBER_TOKEN = re.compile(r"[$€£]?\d+(?:[.,]\d+)?%?")
 _QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
 _DASHES = str.maketrans({"–": "-", "—": "-"})
 
@@ -140,24 +142,24 @@ def _fuzzy_miss(quote: str, body: str) -> str | None:
     `partial_ratio` slides the *shorter* string along the longer one. When the page is the
     shorter one, the page is matched inside the quote, so a 7-char page scores 100 against a
     made-up 42-char quote. The alignment's `src_*` span is the part of the quote (first
-    argument) that matched; it must be the whole quote. Then every digit run in the quote must
-    be on the page (module docstring: numbers must match).
+    argument) that matched; it must be the whole quote. Then every number token in the quote must
+    be on the page verbatim (module docstring: numbers must match).
     """
     alignment = fuzz.partial_ratio_alignment(quote, body)
     score = 0.0 if alignment is None else alignment.score
     if alignment is None or score < FUZZY_THRESHOLD:
         return f"quote not found on page: best partial_ratio={score:.1f} < {FUZZY_THRESHOLD}"
+    missing = sorted(set(_NUMBER_TOKEN.findall(quote)) - set(_NUMBER_TOKEN.findall(body)))
+    if missing:
+        return (
+            f"quote not found on page: numbers differ ({', '.join(missing)} not on page; "
+            f"partial_ratio={score:.1f})"
+        )
     if not (alignment.src_start == 0 and alignment.src_end == len(quote)):
         covered = alignment.src_end - alignment.src_start
         return (
             "quote not found on page: fuzzy match does not cover the whole quote "
             f"(partial_ratio={score:.1f} on {covered}/{len(quote)} chars)"
-        )
-    missing = sorted(set(_DIGIT_RUN.findall(quote)) - set(_DIGIT_RUN.findall(body)), key=int)
-    if missing:
-        return (
-            f"quote not found on page: numbers differ ({', '.join(missing)} not on page; "
-            f"partial_ratio={score:.1f})"
         )
     return None
 

@@ -195,6 +195,42 @@ def test_fuzzy_quote_with_matching_numbers_still_verifies() -> None:
     assert (fuzzy.verified, fuzzy.verify_method) == (True, "quote_fuzzy")
 
 
+@pytest.mark.parametrize(
+    ("text", "quote", "missing"),
+    [
+        ("Churn fell to 19 per month", "Churn fell to 19% per month", "19%"),
+        (
+            "Basic is $19.49 per seat per month, billed yearly. Enterprise is $99 per seat.",
+            "Basic is $19.99 per seat per month, billed yearly",
+            "$19.99",
+        ),
+        ("Trials convert at 10% and 19 teams signed up", "Trials convert at 19%", "19%"),
+        ("Basic is \u20ac19 per seat", "Basic is $19 per seat", "$19"),
+    ],
+    ids=["percent-sign", "decimal-price-digit-runs-present", "percent-vs-bare-19", "currency-sign"],
+)
+def test_fuzzy_quote_number_token_must_match_verbatim(text: str, quote: str, missing: str) -> None:
+    # Owner ruling 2026-11-15: every number token (digits with currency sign, decimal point
+    # or %) in a fuzzy quote must be on the page verbatim; bare digit runs are not enough.
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note is not None
+    assert f"numbers differ ({missing} not on page" in out.verify_note
+    assert not is_dropped(out)
+
+
+def test_fuzzy_quote_with_matching_number_tokens_verifies() -> None:
+    url = "https://tokens.example/"
+    text = "Basic is $19.99 per seat per month, billed yearly, with audit logs."
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(
+        quote_claim(url, "Basic is $19.99 per seat per month billed yearly"), pages, []
+    )
+    assert (out.verified, out.verify_method) == (True, "quote_fuzzy")
+
+
 def test_markdown_wrapped_page_still_matches() -> None:
     pages = {MD_URL: FetchedPage(url=MD_URL, text=MD_PAGE, fetched_at=T0, ok=True)}
     claim = quote_claim(MD_URL, "The Team plan is 14 dollars per seat per month - billed yearly.")
