@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 
 from receipts.contracts import Battlecard, Claim, RunEvent, RunId, RunSummary
@@ -13,6 +14,7 @@ from receipts.ui.render import (
 )
 
 T0 = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
+HTML_TAG_RE = re.compile(r"<\s*/?\s*[A-Za-z]")
 
 # One distinct substring per event kind, so a kind that falls through to a generic line fails.
 KIND_MARKERS: dict[str, str] = {
@@ -35,7 +37,8 @@ def test_render_event_line_is_kind_specific_for_every_kind(sample_events: list[R
         assert line.strip(), f"empty line for {event.kind}"
         assert "\n" not in line.strip(), f"{event.kind} rendered more than one line"
         assert event.kind in line, f"{event.kind!r} not named in {line!r}"
-        assert "<span" not in line, f"event line leaked HTML span: {line!r}"
+        assert HTML_TAG_RE.search(line) is None, f"event line leaked HTML tag: {line!r}"
+        assert "<" not in line, f"event line leaked raw '<': {line!r}"
         assert KIND_MARKERS[event.kind] in line, f"{event.kind}: {line!r}"
 
 
