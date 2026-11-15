@@ -45,9 +45,10 @@ def _summary(run_id: RunId, started_at: datetime) -> RunSummary:
     )
 
 
-@pytest.fixture
-async def repo(tmp_path: Path) -> AsyncIterator[SqlRunRepo]:
-    repo = SqlRunRepo(url=f"sqlite:///{tmp_path / 'receipts.db'}")
+@pytest.fixture(params=["file", "memory"])
+async def repo(tmp_path: Path, request: pytest.FixtureRequest) -> AsyncIterator[SqlRunRepo]:
+    url = "sqlite:///:memory:" if request.param == "memory" else f"sqlite:///{tmp_path / 'r.db'}"
+    repo = SqlRunRepo(url=url)
     await create_schema(repo.engine)
     yield repo
     await repo.dispose()
