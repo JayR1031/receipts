@@ -11,6 +11,12 @@ The last such block in the final message is parsed with a Pydantic `TypeAdapter`
 receipt's `ts` is always taken from the logged search row (or the clock when no row matches).
 A final message with no parseable block is an `ErrorEvent` for the domain, not a crash.
 
+Repairs (GitHub issue #39): with a `repair_factory`, each parsed claim the Verifier would not
+verify goes to a `ClaimRepairer` (Mellea in production, `repair.py`) before any claim event, at
+most `MAX_REPAIRS` model calls per claim and only while the pack's `timeout_s`, counted from the
+start of `run`, lasts. The `claim` event then carries the claim the Verifier judges: the repaired
+one if a repair passed, else the agent's own. With no factory (the default) nothing changes.
+
 Events are yielded after the agent finishes, in tool-call order: the tools run synchronously
 inside the agent loop, so recording into a `ToolLog` and replaying is simpler than threading an
 event queue through LangGraph. The Coordinator interleaves domains, so the stream still moves.
@@ -20,7 +26,9 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import logging
 import re
+import time
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Annotated, Literal, Protocol
@@ -51,6 +59,7 @@ from receipts.contracts import (
     SearchResult,
     VerifiedEvent,
 )
+from receipts.harness.repair import ClaimRepairer, RepairFactory, RepairRequest, evidence_for
 from receipts.harness.tools import SearchCall, ToolLog, make_tools
 
 Clock = Callable[[], datetime]
@@ -236,6 +245,38 @@ def final_text(messages: Sequence[object]) -> str:
 
 # --- the runner -----------------------------------------------------------------------------
 
+logger = logging.getLogger(__name__)
+
+
+def _unverified(claim: Claim) -> Claim:
+    """`claim` with no verification: a repairer proposes claims, it never verifies them."""
+    return claim.model_copy(update={"verified": False, "verify_method": None, "verify_note": None})
+
+
+def _merge(
+    claims: Sequence[Claim], failing: Sequence[int], fixed: Sequence[Claim | None]
+) -> list[Claim]:
+    """`claims` with each repaired one (verify fields cleared) in its original position."""
+    out = list(claims)
+    for i, claim in zip(failing, fixed, strict=True):
+        out[i] = out[i] if claim is None else _unverified(claim)
+    return out
+
+
+async def _bounded(repairer: ClaimRepairer, request: RepairRequest, timeout: float) -> Claim | None:
+    """The repairer's claim, or `None` when it found none, ran past `timeout` or raised.
+
+    A repair is best effort: a timeout or a backend error leaves the claim to the Verifier as
+    drafted, and is logged by type only (the message could echo page text).
+    """
+    try:
+        return await asyncio.wait_for(repairer(request), timeout=timeout)
+    except TimeoutError:
+        logger.warning("claim repair: %s hit the pack time budget", request.claim.domain)
+    except Exception as exc:
+        logger.warning("claim repair: %s raised %s", request.claim.domain, type(exc).__name__)
+    return None
+
 
 class SpecialistRunner:
     """Runs one `DomainPack` against the search and fetch clients and yields `RunEvent`s."""
@@ -248,12 +289,16 @@ class SpecialistRunner:
         model_factory: ModelFactory = default_model_factory,
         verify: Verify = passthrough_verify,
         clock: Clock = utc_now,
+        repair_factory: RepairFactory | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._search = search
         self._fetch = fetch
         self._model_factory = model_factory
         self._verify = verify
         self._clock = clock
+        self._repair_factory = repair_factory
+        self._monotonic = monotonic
 
     async def _invoke(self, pack: DomainPack, request: RunRequest, log: ToolLog) -> str:
         tools = make_tools(self._search, self._fetch, log=log)
@@ -297,6 +342,46 @@ class SpecialistRunner:
                 )
         return events
 
+    async def _repair_failing(
+        self, pack: DomainPack, log: ToolLog, claims: Sequence[Claim], deadline: float
+    ) -> list[Claim]:
+        """Each claim the Verifier would not verify, repaired where the repairer can (repair.py).
+
+        Order is kept. With no repair factory, no failing claim, or no time left in the pack's
+        budget, the claims come back as they are. A repaired claim has its verify fields cleared,
+        so whatever a repairer returns, only `self._verify` in `_claim_events` can verify it.
+        Logs one INFO line per domain: `claim repair: <domain> failing=N repaired=M`.
+        """
+        if self._repair_factory is None:
+            return list(claims)
+        pages, rows = log.pages, log.search_rows
+        notes = [self._verify(claim, pages, rows) for claim in claims]
+        failing = [i for i, checked in enumerate(notes) if not checked.verified]
+        remaining = deadline - self._monotonic()
+        if failing and remaining <= 0:
+            logger.info("claim repair: %s skipped, the pack time budget is spent", pack.id)
+            return list(claims)
+        fixed: list[Claim | None] = []
+        if failing:
+            repairer, now = self._repair_factory(pack), self._clock()
+            requests = [self._repair_request(claims[i], notes[i], pack, log, now) for i in failing]
+            fixed = await asyncio.gather(*(_bounded(repairer, r, remaining) for r in requests))
+        repaired = sum(claim is not None for claim in fixed)
+        logger.info("claim repair: %s failing=%d repaired=%d", pack.id, len(failing), repaired)
+        return _merge(claims, failing, fixed)
+
+    def _repair_request(
+        self, claim: Claim, checked: Claim, pack: DomainPack, log: ToolLog, now: datetime
+    ) -> RepairRequest:
+        pages, rows = log.pages, log.search_rows
+        return RepairRequest(
+            claim=claim,
+            failure=checked.verify_note or "not verified: no receipt matched this run's log",
+            evidence=evidence_for(claim, pages, rows),
+            check=lambda candidate: self._verify(candidate, pages, rows),
+            parse=lambda reply: parse_claims(reply, pack, log, now),
+        )
+
     def _claim_events(
         self, run_id: RunId, pack: DomainPack, log: ToolLog, claims: Sequence[Claim]
     ) -> list[RunEvent]:
@@ -325,6 +410,7 @@ class SpecialistRunner:
     async def run(
         self, run_id: RunId, request: RunRequest, pack: DomainPack
     ) -> AsyncIterator[RunEvent]:
+        deadline = self._monotonic() + pack.timeout_s
         log = ToolLog()
         text = await self._invoke(pack, request, log)
         for event in self._tool_events(run_id, pack, log):
@@ -334,5 +420,6 @@ class SpecialistRunner:
         except ValueError as exc:
             yield ErrorEvent(run_id=run_id, ts=self._clock(), domain=pack.id, message=str(exc))
             return
+        claims = await self._repair_failing(pack, log, claims, deadline)
         for event in self._claim_events(run_id, pack, log, claims):
             yield event

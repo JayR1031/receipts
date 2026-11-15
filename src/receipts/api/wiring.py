@@ -25,7 +25,9 @@ Run panel replays the demo without a passcode. In every other case it applies th
 as `POST /api/runs` (passcode, then Keenable key), so once a passcode is set the UI cannot start a
 run the API would refuse. `POST /api/runs` is L4's and always needs a configured passcode.
 
-The verifier is L2's `receipts.verify.verify_claim` (pure; merged in PR #25).
+The verifier is L2's `receipts.verify.verify_claim` (pure; merged in PR #25). Claims it would not
+verify first get up to two Mellea repairs (`live_repair_factory`, GitHub issue #39, ADR-0007);
+the verifier still judges every claim.
 """
 
 from __future__ import annotations
@@ -57,11 +59,17 @@ from receipts.harness import (
     Coordinator,
     InProcessRunService,
     ModelFactory,
+    RepairFactory,
     SpecialistRunner,
     Verify,
     load_pack,
 )
-from receipts.harness.live import KeenableFetchClient, KeenableSearchClient, live_model_factory
+from receipts.harness.live import (
+    KeenableFetchClient,
+    KeenableSearchClient,
+    live_model_factory,
+    live_repair_factory,
+)
 from receipts.settings import Settings, get_settings, require_keenable_key
 from receipts.ui.demo import demo_service as ui_demo_service
 from receipts.verify import verify_claim
@@ -122,8 +130,9 @@ def build_live_service(
     model_factory: ModelFactory = live_model_factory,
     repo: RunRepo | None = None,
     verify: Verify | None = None,
+    repair_factory: RepairFactory | None = live_repair_factory,
 ) -> InProcessRunService:
-    """The real service: two packs, Keenable clients, L2's verifier, `SqlRunRepo`.
+    """The real service: two packs, Keenable clients, L2's verifier, Mellea repairs, `SqlRunRepo`.
 
     Keyword arguments exist for tests and the integration run (a stub client, a SQLite repo);
     production passes `settings` and the repo. Raises `MissingSettingError("KEENABLE_API_KEY")`
@@ -138,6 +147,7 @@ def build_live_service(
         fetch,
         model_factory=model_factory,
         verify=verify if verify is not None else verify_claim,
+        repair_factory=repair_factory,
     )
     coordinator = Coordinator(
         [load_pack(name) for name in PACK_NAMES],
