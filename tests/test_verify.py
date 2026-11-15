@@ -231,6 +231,51 @@ def test_fuzzy_quote_with_matching_number_tokens_verifies() -> None:
     assert (out.verified, out.verify_method) == (True, "quote_fuzzy")
 
 
+def test_fuzzy_quote_price_per_month_verifies() -> None:
+    url = "https://tokens.example/"
+    text = "Basic is $19.99 per month, billed yearly, with audit logs."
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, "Basic is $19.99 per month billed yearly"), pages, [])
+    assert (out.verified, out.verify_method) == (True, "quote_fuzzy")
+
+
+def test_thousands_comma_equals_plain_number() -> None:
+    url = "https://tokens.example/"
+    text = "The team plan includes 1000 seats and audit logs."
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, "1,000 seats"), pages, [])
+    assert out.verified is True
+    assert out.verify_method in ("quote_exact", "quote_fuzzy")
+    assert out.verify_note is None or "numbers differ" not in out.verify_note
+
+
+def test_thousands_comma_fuzzy_verifies() -> None:
+    url = "https://tokens.example/"
+    text = "The team plan includes 1000 seats and audit logs."
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    quote = quote_claim(url, "The team plan includes 1,000 seats and audit log")
+    out = verify_claim(quote, pages, [])
+    assert (out.verified, out.verify_method) == (True, "quote_fuzzy")
+
+
+def test_decimal_comma_is_not_a_thousands_separator() -> None:
+    url = "https://tokens.example/"
+    text = "Basic is 1999 per seat per month, billed yearly, with audit logs."
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    quote = quote_claim(url, "Basic is 19,99 per seat per month billed yearly")
+    out = verify_claim(quote, pages, [])
+    assert out.verified is False
+    assert out.verify_note is not None
+    assert "19,99" in out.verify_note
+
+
+def test_yen_sign_must_match() -> None:
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text="$1900", fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, "\u00a51900"), pages, [])
+    assert out.verified is False
+
+
 def test_markdown_wrapped_page_still_matches() -> None:
     pages = {MD_URL: FetchedPage(url=MD_URL, text=MD_PAGE, fetched_at=T0, ok=True)}
     claim = quote_claim(MD_URL, "The Team plan is 14 dollars per seat per month - billed yearly.")

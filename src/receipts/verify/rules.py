@@ -12,10 +12,13 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   match must cover the *whole quote* (`partial_ratio_alignment`'s span over the quote is
   `[0, len(quote))`); otherwise a page shorter than the quote would match inside the quote and
   "verify" text that is not on the page. **Numbers must match** (project owner's ruling,
-  2026-11-15, a deliberate tightening of the spec's `partial_ratio >= 90` rule): "a
-  `quote_fuzzy` match also requires every number token in the quote (digits, with any currency
-  sign, decimal point or %) to appear verbatim in the normalized page text; otherwise the claim
-  is not verified. Exact-substring matches are unaffected." A one-digit price change scores
+  2026-11-15, a deliberate tightening of the spec's `partial_ratio >= 90` rule): a `quote_fuzzy`
+  match also requires every number token in the quote to appear as a whole token in the page's
+  token list. A number token is the regex `[$€£¥]?\\d+(?:[.,]\\d+)*%?` on the normalized quote
+  and page (same `normalize()` for both); `19.99` is one token, never split. Tokens compare as
+  strings after stripping only thousands-separator commas (a comma followed by exactly three
+  digits), so `1,000 == 1000` while the decimal comma in `19,99` stays; the currency sign and `%`
+  stay part of the token. Exact-substring matches are unaffected. A one-digit price change scores
   ~97, and a battlecard must never show a wrong number as verified. `normalize` keeps `$ € £ %
   . ,` next to digits, so the token regex runs on the normalized strings.
 * `SearchReceipt`: verified (`search_log`) iff a logged `SearchResult` has the same `query`,
@@ -65,7 +68,8 @@ _STAR = re.compile(r"\*")
 # strips _em_ and __strong__, keeps snake_case
 _UNDERSCORE_EMPHASIS = re.compile(r"(?<!\w)_+|_+(?!\w)")
 _WHITESPACE = re.compile(r"\s+")
-_NUMBER_TOKEN = re.compile(r"[$€£]?\d+(?:[.,]\d+)?%?")
+_NUMBER_TOKEN = re.compile(r"[$€£¥]?\d+(?:[.,]\d+)*%?")
+_THOUSANDS_COMMA = re.compile(r",(?=\d{3}(?!\d))")
 _QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
 _DASHES = str.maketrans({"–": "-", "—": "-"})
 
@@ -136,6 +140,11 @@ def _verify_quote(claim: Claim, receipt: QuoteReceipt, pages: Mapping[str, Fetch
     return _outcome(claim, verified=True, method="quote_fuzzy", note=note)
 
 
+def _canonical_number(token: str) -> str:
+    """Token with thousands-separator commas removed (`1,000` -> `1000`; `19,99` unchanged)."""
+    return _THOUSANDS_COMMA.sub("", token)
+
+
 def _fuzzy_miss(quote: str, body: str) -> str | None:
     """Why the normalized `quote` is *not* a fuzzy match for `body`, or `None` when it is.
 
@@ -149,7 +158,10 @@ def _fuzzy_miss(quote: str, body: str) -> str | None:
     score = 0.0 if alignment is None else alignment.score
     if alignment is None or score < FUZZY_THRESHOLD:
         return f"quote not found on page: best partial_ratio={score:.1f} < {FUZZY_THRESHOLD}"
-    missing = sorted(set(_NUMBER_TOKEN.findall(quote)) - set(_NUMBER_TOKEN.findall(body)))
+    on_page = {_canonical_number(tok) for tok in _NUMBER_TOKEN.findall(body)}
+    missing = sorted(
+        {tok for tok in _NUMBER_TOKEN.findall(quote) if _canonical_number(tok) not in on_page}
+    )
     if missing:
         return (
             f"quote not found on page: numbers differ ({', '.join(missing)} not on page; "
