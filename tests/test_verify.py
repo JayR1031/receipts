@@ -125,6 +125,41 @@ def test_missed_quote_below_threshold(
     assert not is_dropped(out)
 
 
+def test_short_page_does_not_verify_a_longer_quote() -> None:
+    # partial_ratio slides the *shorter* string along the longer one; a 7-char page must not
+    # "verify" a 42-char quote just because the page text appears inside the quote.
+    url = "https://short.example/"
+    pages = {url: FetchedPage(url=url, text="Pricing", fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, "Our pricing is free forever for every team"), pages, [])
+    assert out.verified is False
+    assert out.verify_method is None
+    assert out.verify_note is not None and out.verify_note.startswith("quote not found on page")
+    assert not is_dropped(out)
+
+
+def test_page_that_is_a_substring_of_the_quote_is_a_miss() -> None:
+    # The whole page is the quote's tail: the tail scores 100, but the aligned span covers only
+    # part of the quote, so the quote is not on the page.
+    url = "https://tail.example/"
+    pages = {
+        url: FetchedPage(url=url, text="every team gets unlimited seats", fetched_at=T0, ok=True)
+    }
+    quote = "Zeta charges nothing: every team gets unlimited seats"
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note is not None and "cover" in out.verify_note
+
+
+def test_quote_missing_one_word_still_fuzzy_verifies() -> None:
+    # Regression guard for the legitimate fuzzy case: the page has the quote minus one word.
+    url = "https://one-word.example/"
+    text = "The Team plan is 14 dollars per seat per month, billed yearly. Cancel any time."
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    quote = "The Team plan is 14 dollars per seat per month, billed yearly or monthly."
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method) == (True, "quote_fuzzy")
+
+
 def test_markdown_wrapped_page_still_matches() -> None:
     pages = {MD_URL: FetchedPage(url=MD_URL, text=MD_PAGE, fetched_at=T0, ok=True)}
     claim = quote_claim(MD_URL, "The Team plan is 14 dollars per seat per month - billed yearly.")

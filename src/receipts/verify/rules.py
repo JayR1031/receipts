@@ -8,7 +8,10 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
 * `QuoteReceipt`: the URL must be a key of `pages` (fetched this run), else the claim is
   **dropped**. A page with `ok=False` is "fetch failed", not "claim false". Otherwise both texts
   pass through `normalize`; an exact substring is `quote_exact`, else
-  `rapidfuzz.fuzz.partial_ratio >= FUZZY_THRESHOLD` is `quote_fuzzy`, else a miss.
+  `rapidfuzz.fuzz.partial_ratio >= FUZZY_THRESHOLD` is `quote_fuzzy`, else a miss. The fuzzy
+  match must cover the *whole quote* (`partial_ratio_alignment`'s span over the quote is
+  `[0, len(quote))`); otherwise a page shorter than the quote would match inside the quote and
+  "verify" text that is not on the page.
 * `SearchReceipt`: verified (`search_log`) iff a logged `SearchResult` has the same `query`,
   `url` and `rank`. A query that was never logged this run is **dropped**; a logged query whose
   rows do not contain that url/rank is a miss.
@@ -115,12 +118,25 @@ def _verify_quote(claim: Claim, receipt: QuoteReceipt, pages: Mapping[str, Fetch
     quote, body = normalize(receipt.quote), normalize(page.text)
     if quote and quote in body:
         return _outcome(claim, verified=True, method="quote_exact", note=None)
-    score = fuzz.partial_ratio(quote, body)
-    if score >= FUZZY_THRESHOLD:
-        note = f"fuzzy match: partial_ratio={score:.1f} >= {FUZZY_THRESHOLD}"
-        return _outcome(claim, verified=True, method="quote_fuzzy", note=note)
-    note = f"quote not found on page: best partial_ratio={score:.1f} < {FUZZY_THRESHOLD}"
-    return _outcome(claim, verified=False, method=None, note=note)
+    # `partial_ratio` slides the *shorter* string along the longer one. When the page is the
+    # shorter one, the page is matched inside the quote, so a 7-char page scores 100 against a
+    # made-up 42-char quote. The alignment's `src_*` span is the part of the quote (first
+    # argument) that matched; it must be the whole quote.
+    alignment = fuzz.partial_ratio_alignment(quote, body)
+    score = 0.0 if alignment is None else alignment.score
+    if score < FUZZY_THRESHOLD:
+        note = f"quote not found on page: best partial_ratio={score:.1f} < {FUZZY_THRESHOLD}"
+        return _outcome(claim, verified=False, method=None, note=note)
+    assert alignment is not None  # score >= threshold > 0 implies an alignment
+    if not (alignment.src_start == 0 and alignment.src_end == len(quote)):
+        note = (
+            "quote not found on page: fuzzy match does not cover the whole quote "
+            f"(partial_ratio={score:.1f} on {alignment.src_end - alignment.src_start}"
+            f"/{len(quote)} chars)"
+        )
+        return _outcome(claim, verified=False, method=None, note=note)
+    note = f"fuzzy match: partial_ratio={score:.1f} >= {FUZZY_THRESHOLD}"
+    return _outcome(claim, verified=True, method="quote_fuzzy", note=note)
 
 
 def _verify_search(claim: Claim, receipt: SearchReceipt, searches: Sequence[SearchResult]) -> Claim:
