@@ -16,6 +16,12 @@ Concurrency: `append_event` reads, extends and rewrites the `events` JSON list i
 transaction. The demo has a single writer per run (the in-process harness), so a lost update
 between two processes is not a case this table has to win; `SELECT ... FOR UPDATE` is still
 sent on Postgres as a belt-and-braces lock, and is a no-op on SQLite.
+
+Placeholder rows: an event that arrives before `save_run` creates the row with `subject=""`,
+`rival=""` and `status="running"`, and `created_at` set to the event's `ts`; `list_runs()` shows
+it. A later `StartedEvent` fills subject, rival and category in; `save_run` overwrites names,
+`created_at` and status. A first event that is not a `StartedEvent` leaves the names empty until
+one arrives.
 """
 
 from __future__ import annotations

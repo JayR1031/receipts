@@ -135,6 +135,23 @@ async def test_error_event_sets_status_error(
     assert (listed.verified_count, listed.total_count) == (0, 0)  # no DoneEvent yet
 
 
+async def test_event_before_save_run_creates_a_placeholder_row(
+    repo: SqlRunRepo, sample_events: list[RunEvent]
+) -> None:
+    """Placeholder rows: an event for an unknown run creates the row, listed as `running`."""
+    started, search = sample_events[0], sample_events[1]
+
+    await repo.append_event(search)  # first event is not a StartedEvent
+    [blank] = await repo.list_runs()
+    assert (blank.subject, blank.rival, blank.status) == ("", "", "running")
+    assert blank.started_at == search.ts
+
+    await repo.append_event(started)  # the StartedEvent fills the names in
+    [filled] = await repo.list_runs()
+    assert (filled.subject, filled.rival, filled.status) == ("Acme Widgets", "Zeta Gadgets", "running")
+    assert [e.kind for e in await repo.get_events(RUN_ID)] == ["search", "started"]
+
+
 async def test_get_run_unknown_is_none(repo: SqlRunRepo) -> None:
     assert await repo.get_run(RunId("run-nope")) is None
     assert await repo.get_events(RunId("run-nope")) == []
