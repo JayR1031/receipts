@@ -20,21 +20,58 @@ Timestamps come from an injected clock defaulting to `datetime.now(UTC)`.
 
 The real model factory is L1's `default_model_factory` (already lazy); it is re-exported here as
 `live_model_factory` rather than duplicated.
+
+The claim repairer (GitHub issue #39, ADR-0007) is Mellea over its LiteLLM backend, model
+`anthropic/<pack.model>`, so repairs go to Anthropic with the specialist's own model.
+`litellm_backend` is called only when a claim needs repairing. Before LiteLLM is first imported it
+sets `LITELLM_LOCAL_MODEL_COST_MAP=True` (unless the environment already sets it): otherwise
+`import litellm` downloads its model price list from GitHub, a request this app has no reason to
+make. LiteLLM reads `ANTHROPIC_API_KEY` from the environment when it sends a request, as
+`ChatAnthropic` does in `default_model_factory`; nothing here reads it. Mellea's own logger is set
+to WARNING, so its INFO lines and progress bars stay out of the server log.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, SecretStr, TypeAdapter, ValidationError
 
-from receipts.contracts import FetchedPage, SearchResult
+from receipts.contracts import DomainPack, FetchedPage, SearchResult
+from receipts.harness.repair import ClaimRepairer, MelleaClaimRepairer
 from receipts.harness.specialist import Clock, default_model_factory, utc_now
 from receipts.settings import MissingSettingError
 
-__all__ = ["KeenableFetchClient", "KeenableSearchClient", "live_model_factory"]
+if TYPE_CHECKING:
+    from mellea.backends.litellm import LiteLLMBackend
+
+__all__ = [
+    "KeenableFetchClient",
+    "KeenableSearchClient",
+    "litellm_backend",
+    "live_model_factory",
+    "live_repair_factory",
+]
 
 live_model_factory = default_model_factory
+
+
+def litellm_backend(model: str) -> LiteLLMBackend:
+    """Mellea's `LiteLLMBackend` for `anthropic/<model>`; LiteLLM is imported here, not earlier."""
+    os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+    from mellea.backends.litellm import LiteLLMBackend
+    from mellea.core import MelleaLogger
+
+    MelleaLogger.get_logger().setLevel(logging.WARNING)
+    return LiteLLMBackend(model_id=f"anthropic/{model}")
+
+
+def live_repair_factory(pack: DomainPack) -> ClaimRepairer:
+    """The live `RepairFactory`: Mellea, the pack's own model, at most `MAX_REPAIRS` per claim."""
+    return MelleaClaimRepairer(lambda: litellm_backend(pack.model))
+
 
 logger = logging.getLogger(__name__)
 

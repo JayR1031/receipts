@@ -1,0 +1,33 @@
+# ADR-0007: Mellea repairs failing claims before the Verifier judges them
+
+**Status:** accepted · **Date:** 2026-11-15 · GitHub issue #39. The repository owner (`JayR1031`) decided on 2026-11-15, in issue #39, to adopt Mellea.
+
+> **Correction, 2026-11-15 (Claude Code session `477932e0`):** the "Claim numbers" bullet under Consequences was rewritten after PR #35 merged as `e844420`. It had called #35 open and paraphrased its rule as "every number"; the merged rule checks value tokens only. The repair prompt in `src/receipts/harness/repair.py` still asks for "every price, percentage or other number" to be in the quote, which is stricter than the verifier.
+
+## Context
+
+A specialist's claim that the Verifier (`src/receipts/verify/`) does not verify is shown as `[unverified]`, or dropped when its receipt cites nothing from this run. Often the fact is on a page the agent fetched, but the agent paraphrased the quote, cited the wrong url, or put a number in the claim text that the quote does not carry. Mellea (https://mellea.ai, IBM, Apache 2.0, PyPI `mellea`) is a library for an instruct-validate-repair loop. The model writes output, deterministic requirements check it, and a failed check's reason goes back to the model as feedback. Mellea is a hackathon sponsor.
+
+`pyproject.toml` and `uv.lock` have been frozen since Wave 0 (AGENTS.md section 9), so adding a dependency needs the owner's approval on record.
+
+## Decision
+
+- **The freeze is lifted for issue #39 only.** Two runtime dependencies are added: `mellea==0.9.0` and `litellm>=1.95.0` (1.109.1 locked). The pin on `mellea` is exact because the repair loop relies on 0.9.0's API and on one of its internal behaviours (see Consequences). The lock also moves two transitive packages down: `huggingface-hub` 2.4.0 → 1.33.0 (used by gradio, gradio-client, litellm and tokenizers) and `python-dateutil` 4.0.0 → 2.9.0.post0 (used by botocore and pandas). The blind review traced both to LiteLLM's version limits. Neither is imported by `src/receipts`, and the unit suite, including the UI tests, and CI's image boot passed on the new lock. Nothing else in the freeze changes.
+- **Where the loop runs.** `SpecialistRunner` (`src/receipts/harness/specialist.py`) checks each parsed claim with the Verifier it was given. A claim that would not be verified goes to `MelleaClaimRepairer` (`src/receipts/harness/repair.py`), which calls `ainstruct` with one `Requirement`. That requirement's `validation_fn` is the same Verifier, bound to this run's fetched pages and search rows, so the requirement and the final decision cannot disagree. The strategy is `RepairTemplateStrategy(loop_budget=2)`: at most two model calls per claim, the second carrying the first one's failure reason. All repairs together must finish inside the pack's `timeout_s`, counted from the start of the specialist's run.
+- **Only the Verifier verifies.** Mellea proposes a replacement claim, nothing more. The reply is parsed by `parse_claims`, which ignores any `verified` key. The runner clears the verify fields of whatever comes back (`_merge` in `specialist.py`) and passes the claim to the Verifier like any other. Mellea's `judge` (`repair.py`) keeps the original claim's `about`; a different repairer could change `about` or `domain`, which no code forces back. A claim that is not repaired, whether because the budget ran out, the time ran out or the backend raised, reaches the Verifier unchanged and is dropped or unverified there, counted as before.
+- **Backend.** Mellea has no native Anthropic backend. Its `LiteLLMBackend` with model `anthropic/<pack.model>` (`claude-sonnet-5-5` in both packs) reaches Claude. LiteLLM reads `ANTHROPIC_API_KEY` from the environment when it sends a request, as `ChatAnthropic` already does. This was confirmed live on 2026-11-15 before any code was built on it: a two-attempt loop under `RepairTemplateStrategy` rejected the first answer and accepted the repair. The model vendor is unchanged (ADR-0004).
+- **Nothing at import.** Mellea and LiteLLM are imported only when a claim needs repairing (`receipts.harness.live.litellm_backend`). `create_app()` loads neither, which `tests/test_harness_repair.py` checks in a subprocess with an empty environment. Before LiteLLM's first import the code sets `LITELLM_LOCAL_MODEL_COST_MAP=True` (`os.environ.setdefault`), because otherwise `import litellm` downloads its model price list from GitHub. Mellea's logger is set to WARNING. Mellea's telemetry and log webhook stay off: both are opt-in through `OTEL_*` and `MELLEA_LOGS_WEBHOOK`, and neither is set.
+
+## Consequences
+
+- **More packages.** The lock grows from 118 to 159 packages. `uv run pip-audit --strict --vulnerability-service osv`, the command in `.github/workflows/security.yml`, printed `No known vulnerabilities found` and exited 0 on the new lock (2026-11-15). No `--ignore-vuln` was added.
+- **Cost and time.** A failing claim costs up to two extra model calls, and runs with failing claims take longer. Repairs run concurrently within a domain and are bounded by the pack's time budget.
+- **What the stream shows.** The `claim` event carries the claim the Verifier judged, which is the repaired one when a repair passed. The contracts are frozen, so there is no separate "repaired" event. Each domain logs one INFO line, `claim repair: <domain> failing=N repaired=M`.
+- **Test-only quirk.** In Mellea 0.9.0 the sampling loop asserts `result._generate_log is not None` (`mellea/stdlib/sampling/base.py`). The real backends set that field and the stock `DummyBackend` does not, so the test backend sets it. An upgrade past 0.9.0 re-checks this.
+- **Claim numbers.** GitHub issue #33 (PR #35, merged as `e844420`) added the claim-number rule to `verify_claim`: every value token in the claim text (a number with a currency sign, a `%`, a decimal part or a thousands separator) must be a number token of the quote. It also added the fuzzy path's per-place number check. The repair requirement *is* `verify_claim`, so both rules are repair targets with no copy of them in the harness.
+
+## Alternatives considered
+
+- **Mellea's OpenAI backend pointed at Anthropic's OpenAI-compatible endpoint.** It would avoid LiteLLM, but it is not the path Mellea documents for Anthropic, and LiteLLM's Anthropic provider handles the provider-specific details. Rejected.
+- **Re-prompting the LangChain agent without Mellea.** Possible, but the owner chose Mellea, and its requirement and repair-feedback loop is the piece this would rebuild.
+- **Copying the Verifier's checks into the harness as separate requirements.** Rejected: two copies would drift, and the requirement could then pass a claim the Verifier rejects, or the reverse.
