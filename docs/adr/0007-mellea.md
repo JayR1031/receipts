@@ -22,7 +22,7 @@ A specialist's claim that the Verifier (`src/receipts/verify/`) does not verify 
 - **Cost and time.** A failing claim costs up to two extra model calls, and runs with failing claims take longer. Repairs run concurrently within a domain and are bounded by the pack's time budget.
 - **What the stream shows.** The `claim` event carries the claim the Verifier judged, which is the repaired one when a repair passed. The contracts are frozen, so there is no separate "repaired" event. Each domain logs one INFO line, `claim repair: <domain> failing=N repaired=M`.
 - **Test-only quirk.** In Mellea 0.9.0 the sampling loop asserts `result._generate_log is not None` (`mellea/stdlib/sampling/base.py`). The real backends set that field and the stock `DummyBackend` does not, so the test backend sets it. An upgrade past 0.9.0 re-checks this.
-- **Claim numbers.** GitHub issue #33 (PR #35, open) adds "every number in the claim text must be in its quote" to `verify_claim`. The repair requirement *is* `verify_claim`, so that rule becomes a repair target automatically when #35 merges, with no copy of it in the harness.
+- **Claim numbers.** GitHub issue #33 (PR #35, merged as `e844420`) added the claim-number rule to `verify_claim`: every value token in the claim text (a number with a currency sign, a `%`, a decimal part or a thousands separator) must be a number token of the quote. It also added the fuzzy path's per-place number check. The repair requirement *is* `verify_claim`, so both rules are repair targets with no copy of them in the harness.
 
 ## Alternatives considered
 
