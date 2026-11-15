@@ -733,6 +733,12 @@ def test_known_limit_a_dropped_plan_label_attaches_another_plans_price(
             "partial_ratio=91.6)",
         ),
         (
+            "Intro text. Every seat on the Basic plan is billed yearly at 4. More text after it.",
+            "Every seat on the Basic plan is billed yearly at 9",
+            "quote not found on page: numbers differ (quote has 9; page has 4 there; "
+            "partial_ratio=98.0)",
+        ),
+        (
             "Up to 1 000 seats on the team plan, billed yearly.",
             "Up to 1,000 seats on the team plan, billed yearly",
             "quote not found on page: numbers differ (quote has 1,000; page has 1, 000 there; "
@@ -743,13 +749,15 @@ def test_known_limit_a_dropped_plan_label_attaches_another_plans_price(
         "quote-order-kept",
         "known-limit-gap-past-the-window",
         "known-limit-words-left-out",
+        "gap-reaches-the-window-end",
         "number-split-by-the-page",
     ],
 )
 def test_numbers_differ_note_exact(text: str, quote: str, note: str) -> None:
-    # gh-33 round-3 judge LOW #2: the pairs stay in quote order (not sorted), and a quote number
-    # whose characters the page splits into two tokens names both ("1, 000"). The other two
-    # cases pin the fail-closed known limit (module docstring): the quote's last number falls
+    # gh-33 round-3 judge LOW #2: the pairs stay in quote order (not sorted); a last quote
+    # number with no matched character reads the page to the window's end ("4" there); and a
+    # quote number whose characters the page splits into two tokens names both ("1, 000").
+    # The two known-limit cases pin the fail-closed limit (module docstring): the last number falls
     # past the score window, so the note says "no number there" although the page has the price
     # just past it ($14; $200 after "with priority support"). Both fail closed.
     url = "https://tokens.example/"
