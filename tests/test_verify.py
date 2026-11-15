@@ -316,6 +316,143 @@ def test_fuzzy_number_check_reads_the_page_text_at_the_match() -> None:
     )
 
 
+TEAM_PAGE = (
+    "Starter plan $8 per seat billed monthly with email support. Team plan $12 per seat billed "
+    "monthly with chat support. Business plan $15 per seat billed monthly."
+)
+PRO_PAGE = (
+    "Pro is billed monthly at $19 per month for every seat on the team, or $199 per year for "
+    "every seat."
+)
+
+
+@pytest.mark.parametrize(
+    ("text", "quote"),
+    [
+        (JUDGE_199_PAGE, "Pro yearly: $19. Pro monthly: $199."),
+        (JUDGE_199_PAGE, "Pro yearly: $19. Pro monthly: $19."),
+        ("Pro: $19/month or $199/year.", "Pro: $199/month or $19/year"),
+        (
+            "Starter $8 per seat, Team $12 per seat, Business $15 per seat.",
+            "Starter $8 per seat, Team $15 per seat, Business $12 per seat",
+        ),
+        (
+            TEAM_PAGE,
+            "Starter plan per seat billed monthly with email support. Team plan $15 per seat "
+            "billed monthly with chat support. Business plan per seat billed monthly",
+        ),
+    ],
+    ids=[
+        "swapped",
+        "repeated",
+        "monthly-yearly-swapped",
+        "table-row-swapped",
+        "price-left-out-then-another-plans-price",
+    ],
+)
+def test_fuzzy_quote_number_must_match_the_page_number_at_the_same_place(
+    text: str, quote: str
+) -> None:
+    # gh-33 round-2 judge HIGH #1: the window check compared sets, so a quote that swaps or
+    # repeats the page's prices, or leaves one out so the next lines up with another plan's,
+    # still verified. Each quote number is now compared with the page number aligned to it.
+    # The last id is a case an in-order (subsequence) check would still pass: the quote's one
+    # price, $15, is the window's last price, but the page has $12 where the quote puts it.
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note is not None
+    assert out.verify_note.startswith("quote not found on page: numbers differ (quote has ")
+    assert not is_dropped(out)
+
+
+@pytest.mark.parametrize(
+    ("quote", "note"),
+    [
+        (
+            "Pro yearly: $19. Pro monthly: $199.",
+            "quote not found on page: numbers differ (quote has $19, $199; page has $199, $19 "
+            "there; partial_ratio=97.1)",
+        ),
+        (
+            "Pro yearly: $19. Pro monthly: $19.",
+            "quote not found on page: numbers differ (quote has $19; page has $199 there; "
+            "partial_ratio=97.1)",
+        ),
+    ],
+    ids=["swapped", "repeated"],
+)
+def test_numbers_differ_note_pairs_each_quote_number_with_the_page_number_there(
+    quote: str, note: str
+) -> None:
+    # gh-33 round-2 judge LOW #3: the note's page side is what the page says at each differing
+    # quote number, in quote order. "repeated" has a matching $19 at the second place, and the
+    # note leaves it out.
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=JUDGE_199_PAGE, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method, out.verify_note) == (False, None, note)
+
+
+@pytest.mark.parametrize(
+    ("text", "quote", "note"),
+    [
+        (
+            "Basic is 14 per seat per month, billed yearly.",
+            "Basic is 9 per seat per month, billed yearly",
+            "quote not found on page: numbers differ (quote has 9; page has 14 there; "
+            "partial_ratio=95.5)",
+        ),
+        (
+            "Basic: $199 per seat yearly. Team: $199 per seat yearly.",
+            "Basic: $19 per seat yearly. Team: $19 per seat yearly",
+            "quote not found on page: numbers differ (quote has $19; page has $199 there; "
+            "partial_ratio=96.2)",
+        ),
+    ],
+    ids=["no-character-of-the-number-matched", "same-difference-twice"],
+)
+def test_numbers_differ_note_reads_the_gap_and_lists_a_difference_once(
+    text: str, quote: str, note: str
+) -> None:
+    # "9" shares no character with the page's "14", so the alignment matches none of it; the
+    # page side is read from the gap between its matched neighbours. A difference that repeats
+    # at two places is listed once.
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method, out.verify_note) == (False, None, note)
+
+
+@pytest.mark.parametrize(
+    ("text", "quote"),
+    [
+        (JUDGE_199_PAGE, "Pro yearly: $199, Pro monthly: $19"),
+        (
+            TEAM_PAGE,
+            "Starter plan per seat billed monthly with email support. Team plan $12 per seat "
+            "billed monthly with chat support. Business plan per seat billed monthly",
+        ),
+        (
+            PRO_PAGE,
+            "Pro is billed monthly at per month for every seat on the team, or $199 per year for "
+            "every seat",
+        ),
+    ],
+    ids=["two-prices-in-place", "price-left-out-the-rest-in-place", "first-price-left-out"],
+)
+def test_fuzzy_quote_whose_numbers_sit_where_the_page_has_them_verifies(
+    text: str, quote: str
+) -> None:
+    # Regression guard for the aligned check: a quote may leave a page number out; the numbers
+    # it does carry verify when each sits where the page has it.
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method) == (True, "quote_fuzzy")
+
+
 def test_quote_that_drops_the_page_currency_sign_is_a_miss_with_an_accurate_note() -> None:
     # gh-33 judge MEDIUM #4. The page says "$20"; the quote says "20". The currency sign is part
     # of the number token (owner ruling 2026-11-15, `currency-sign` case above), so "20" cuts the

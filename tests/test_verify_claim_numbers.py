@@ -1,4 +1,7 @@
-"""Lane L2, GitHub issue #33: every number in a quote-receipt claim's text must be in its quote.
+"""Lane L2, GitHub issue #33: every value token in a quote-receipt claim must be in its quote.
+
+A value token is a number with a currency sign, a `%`, a decimal part or a thousands separator
+(`$20`, `20%`, `19.5`, `2,500`); bare integers are not checked (`rules.py` module docstring).
 
 The two regression cases use the claim and quote text as reported for the first live run
 (run-0e7ff2b1bb05) in GitHub issue #33 and its task brief; the run's own record is not in this
@@ -187,11 +190,13 @@ def test_bare_integers_in_the_claim_are_not_checked(claim_text: str, quote: str,
     [
         ("Pro costs $24/month.", "$24"),
         ("Pro costs €24/month.", "€24"),
+        ("Pro costs £24/month.", "£24"),
+        ("Pro costs ¥24/month.", "¥24"),
         ("Annual billing saves 25%.", "25%"),
         ("Pro includes 19.5 hours of compute.", "19.5"),
         ("Pro includes 2,500 credits.", "2,500"),
     ],
-    ids=["dollar", "euro", "percent", "decimal", "thousands-separator"],
+    ids=["dollar", "euro", "pound", "yen", "percent", "decimal", "thousands-separator"],
 )
 def test_value_tokens_in_the_claim_are_checked(claim_text: str, missing: str) -> None:
     url = "https://tokens.example/"
@@ -214,6 +219,7 @@ def test_value_tokens_in_the_claim_are_checked(claim_text: str, missing: str) ->
         ("Save 20% on annual.", "Save 20 percent yearly", "Save 20 percent yearly."),
         ("Save 20% on annual.", "Save 20 % yearly", "Save 20 % yearly."),
         ("Save 20 percent on annual.", "Save 20% yearly", "Save 20% yearly."),
+        ("Save 20.0% on annual.", "Save 20% yearly", "Save 20% yearly."),
     ],
     ids=[
         "zero-cents-in-claim",
@@ -222,6 +228,7 @@ def test_value_tokens_in_the_claim_are_checked(claim_text: str, missing: str) ->
         "percent-word-in-quote",
         "percent-space-in-quote",
         "percent-word-in-claim",
+        "zero-tenths-percent-in-claim",
     ],
 )
 def test_same_value_written_differently_verifies(claim_text: str, quote: str, text: str) -> None:
@@ -244,8 +251,22 @@ def test_percent_word_in_the_claim_is_a_value_token() -> None:
 
 @pytest.mark.parametrize(
     "claim_text",
-    ["Starter is $0 a month.", "Starter is $0.00 a month.", "Starter costs 0 dollars a month."],
-    ids=["dollar-zero", "dollar-zero-cents", "zero-dollars-words"],
+    [
+        "Starter is $0 a month.",
+        "Starter is $0.00 a month.",
+        "Starter is €0 a month.",
+        "Starter is £0 a month.",
+        "Starter is ¥0 a month.",
+        "Starter costs 0 dollars a month.",
+    ],
+    ids=[
+        "dollar-zero",
+        "dollar-zero-cents",
+        "euro-zero",
+        "pound-zero",
+        "yen-zero",
+        "zero-dollars-words",
+    ],
 )
 def test_zero_price_in_the_claim_is_matched_by_free_in_the_quote(claim_text: str) -> None:
     # Coordinator, from live run run-6a5fe9499c4d: one false positive of 19 quote-receipt claims
