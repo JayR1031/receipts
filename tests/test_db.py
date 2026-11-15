@@ -7,11 +7,14 @@ All text here is invented: no real companies, people, usernames or keys. No netw
 from __future__ import annotations
 
 import os
+import threading
+import time
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from sqlalchemy import Engine
 
 from receipts.contracts import (
     RUN_EVENT_ADAPTER,
@@ -23,6 +26,7 @@ from receipts.contracts import (
     RunSummary,
 )
 from receipts.db import SqlRunRepo, create_schema
+from receipts.db import repo as repo_module
 from receipts.settings import MissingSettingError, get_settings
 
 T0 = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
@@ -150,6 +154,31 @@ async def test_event_before_save_run_creates_a_placeholder_row(
     [filled] = await repo.list_runs()
     assert (filled.subject, filled.rival, filled.status) == ("Acme Widgets", "Zeta Gadgets", "running")
     assert [e.kind for e in await repo.get_events(RUN_ID)] == ["search", "started"]
+
+
+def test_concurrent_first_use_builds_one_engine(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    built: list[object] = []
+    real_make_engine = repo_module.make_engine
+
+    def slow_make_engine(url: str) -> Engine:
+        time.sleep(0.05)  # widen the window in which a second thread would also see None
+        engine = real_make_engine(url)
+        built.append(engine)
+        return engine
+
+    monkeypatch.setattr(repo_module, "make_engine", slow_make_engine)
+    repo = SqlRunRepo(url=f"sqlite:///{tmp_path / 'race.db'}")
+    engines: list[Engine] = []
+    threads = [threading.Thread(target=lambda: engines.append(repo.engine)) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(built) == 1
+    assert len({id(e) for e in engines}) == 1
 
 
 async def test_get_run_unknown_is_none(repo: SqlRunRepo) -> None:

@@ -27,6 +27,7 @@ one arrives.
 from __future__ import annotations
 
 import asyncio
+import threading
 from datetime import datetime
 
 from sqlalchemy import Engine, StaticPool, create_engine, select
@@ -122,12 +123,14 @@ class SqlRunRepo:
     def __init__(self, url: str | None = None, *, engine: Engine | None = None) -> None:
         self._url = url
         self._engine = engine
+        self._engine_lock = threading.Lock()  # the engine is first built in worker threads
 
     @property
     def engine(self) -> Engine:
-        if self._engine is None:
-            self._engine = make_engine(self._resolve_url())
-        return self._engine
+        with self._engine_lock:
+            if self._engine is None:
+                self._engine = make_engine(self._resolve_url())
+            return self._engine
 
     def _resolve_url(self) -> str:
         if self._url is not None:
@@ -141,9 +144,10 @@ class SqlRunRepo:
         return Session(self.engine, expire_on_commit=False)
 
     async def dispose(self) -> None:
-        if self._engine is not None:
-            await asyncio.to_thread(self._engine.dispose)
-            self._engine = None
+        with self._engine_lock:
+            engine, self._engine = self._engine, None
+        if engine is not None:
+            await asyncio.to_thread(engine.dispose)
 
     # --- RunRepo -----------------------------------------------------------------------
 
