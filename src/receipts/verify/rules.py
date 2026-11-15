@@ -62,30 +62,34 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
     price. Each of these verifies:
     - `tier b: $29` on `tier a: $29 ... tier b: $19`;
     - `basic $200 pro max $1,999` on `basic $200 pro $1,999 max $8`: the alignment drops `max`,
-      because pairing the longer `$1,999` matches more characters;
-    - `the starter plan ... is $9 per seat` on `the starter plan ... is free. pro $9 per seat`:
-      the quote leaves out the page's own price word and the next label, so it carries on as
-      the next plan's text (a miss on `7363a43`).
+      because pairing the longer `$1,999` matches more characters.
 
-    Rates in PR #35's random tests at attempt 5 (the scripts are in the review records, not in
-    the repository):
-    - 2 of 160,000 quotes on two- to four-price pages;
-    - 22 of 7,439 on pages with a word price or a price sharing no character (`7363a43`: 22);
-    - 1 of 6,000 that leave words out before a price a short label from the next plan's
-      (`7363a43`: 0).
+    Rate in PR #35's random tests at attempt 5: 2 of the 109,249 wrong-price quotes among
+    160,000 generated on two- to four-price pages (`7363a43`: 22). The scripts are in the review
+    records, not in the repository. Tracked in GitHub issue #45.
+  - **Known limit, a price carried past the page's own price (fail-open):** the widened
+    alignment can carry a quote price past the page's own price at its place, a word or a
+    different price, to the next plan's equal price. Example, verified here and a miss on
+    `7363a43`: `the starter plan ... is $9 per seat` on
+    `the starter plan ... is free. pro $9 per seat`. Rates at attempt 5:
+    - 22 of 7,439 misquotes on pages whose own price at that place is a word or a different
+      price (`7363a43`: 22; with a fixed quarter pad: 107);
+    - 1 of 6,000 that give one plan the next plan's price a short label away, 4,004 of which
+      leave words out earlier (`7363a43`: 0).
 
-    Tracked in GitHub issue #45.
+    Tracked in #45.
   - **Known limit, some true quotes fail closed:** the alignment can leave a quote number with
     no page number, or with two, although the page has it. It is then a miss, and the note can
     say `page has no number there`, although the page has the number further on. This happens:
     - when the quote leaves out more page text than its slack covers (`the max plan is $200` on
       `the max plan with priority support is $200`);
-    - when the quote leaves out words right next to its first or last price
-      (`pro $9, growth $15 a month` on `pro $9 per month, growth $15 a month`, and
-      `starter 2,500 seats $9` on `... starter 2,500 seats for $9.`).
+    - when the quote leaves out words right next to one of its prices, such as
+      `pro $9, growth $15 a month, lite $1 a month` on
+      `pro $9 per month, growth $15 a month, lite $1 a month.`, or `starter 2,500 seats $9` on
+      `... starter 2,500 seats for $9.`
 
-    Rates in PR #35's random tests at attempt 5: 10 of 5,998 true quotes, and 3 of 2,931 on
-    pages dense with prices; all 13 are the second case. Tracked in #45.
+    Rates at attempt 5: 10 of 5,998 true quotes, and 3 of 2,931 on pages dense with prices.
+    Tracked in #45.
 
   A one-digit price change scores ~97. The aim is that a battlecard never shows a wrong number
   as verified; the known limits in this docstring are the exceptions. `normalize` keeps
