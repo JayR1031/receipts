@@ -64,20 +64,22 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
     - `basic $200 pro max $1,999` on `basic $200 pro $1,999 max $8`: the alignment drops `max`,
       because pairing the longer `$1,999` matches more characters.
 
-    Rate in PR #35's random tests at attempt 5: 2 of the 109,249 wrong-price quotes among
-    160,000 generated on two- to four-price pages (`7363a43`: 22). The scripts are in the review
-    records, not in the repository. Tracked in GitHub issue #45.
+    Rates in PR #35's random tests at attempt 5 (the scripts are in the review records, not in
+    the repository):
+    - 2 of the 109,249 wrong-price quotes among 160,000 generated on two- to four-price pages
+      (`7363a43`: 22);
+    - 22 of 7,439 misquotes on pages whose own price at the quote's place is a word or a
+      different price. The bare score window already sits on the next plan's text, with the
+      quote's label aligned to that plan's (`7363a43`, without the widening: the same 22).
+
+    Tracked in GitHub issue #45.
   - **Known limit, a price carried past the page's own price (fail-open):** the widened
     alignment can carry a quote price past the page's own price at its place, a word or a
     different price, to the next plan's equal price. Example, verified here and a miss on
     `7363a43`: `the starter plan ... is $9 per seat` on
-    `the starter plan ... is free. pro $9 per seat`. Rates at attempt 5:
-    - 22 of 7,439 misquotes on pages whose own price at that place is a word or a different
-      price (`7363a43`: 22; with a fixed quarter pad: 107);
-    - 1 of 6,000 that give one plan the next plan's price a short label away, 4,004 of which
-      leave words out earlier (`7363a43`: 0).
-
-    Tracked in #45.
+    `the starter plan ... is free. pro $9 per seat`. Rate at attempt 5: 1 of 6,000 quotes that
+    give one plan the next plan's price a short label away, 4,004 of which leave words out
+    earlier (`7363a43`: 0; with a fixed pad of a quarter of the quote: 67). Tracked in #45.
   - **Known limit, some true quotes fail closed:** the alignment can leave a quote number with
     no page number, or with two, although the page has it. It is then a miss, and the note can
     say `page has no number there`, although the page has the number further on. This happens:
