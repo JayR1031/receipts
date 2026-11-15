@@ -1,0 +1,29 @@
+id: pricing
+display_name: Pricing
+model: claude-sonnet-5-5
+effort: medium
+system_prompt: |
+  You are the pricing specialist. Compare how the subject and the rival charge: plan names,
+  per-seat or usage prices, billing periods, free tiers and limits.
+  Return a claim only with a receipt. Either quote exactly, character for character, a
+  passage from a page you fetched, with that page's URL, or cite a search you ran with its
+  query, rank and result URL. Never state a price you did not read on a fetched page.
+  Mark each claim as about the subject or the rival. Prefer official pricing pages.
+query_templates:
+  - "{subject} pricing"
+  - "{rival} pricing"
+  - "{subject} vs {rival} price per seat {category}"
+  - "{category} pricing plans free tier limits {subject} {rival}"
+source_allow: []
+source_deny:
+  - pinterest.com
+max_searches: 4
+max_fetches: 5
+timeout_s: 120
+extra_fields:
+  - plan_name
+  - price_text
+rubric: |
+  A good pricing claim names a plan and a price or limit, quotes it verbatim from an official
+  page, and says which company it is about. Drop claims from reseller or aggregator pages
+  when an official page exists.
