@@ -2,10 +2,14 @@
 
 Each test inserts one bad row with a raw `insert(runs_table)` and asserts `IntegrityError`, then
 counts rows with that id: zero. A rejected insert aborts its transaction, so nothing persists;
-the only valid row written (the duplicate-key test) is deleted in a `finally`.
+the only valid row written (the duplicate-key test) is deleted in a `finally`. The NULL `id`
+case cannot key on its id, so it compares the table's total row count before and after.
 
 The schema has no CHECK, UNIQUE or foreign key beyond the primary key and NOT NULL columns
 (`created_at`, `subject`, `rival`, `status`, `events`), so those are the constraints proven.
+`varchar(n)` length limits (id 64, subject 200, status 16, ...) are intentionally untested: they
+are enforced only on Postgres, raise `DataError` rather than `IntegrityError`, and are outside the
+constraint kinds listed at spec:48 (NOT NULL, FK, CHECK, unique).
 SQLite would also enforce these, but the module runs against Postgres only (Neon) because that
 is what the constraints protect in production; it is skipped, by name, without `DATABASE_URL`.
 """
@@ -95,3 +99,15 @@ def test_null_in_required_column_is_rejected(engine: Engine, column: str) -> Non
     values = _valid(_new_id())
     values[column] = null()  # SQL NULL; a bare None in a JSON column binds JSON 'null'
     _assert_rejected(engine, values)
+
+
+def test_null_id_is_rejected(engine: Engine) -> None:
+    with engine.connect() as conn:
+        before = conn.execute(select(func.count()).select_from(RUNS)).scalar_one()
+    values = _valid(_new_id())
+    values["id"] = null()  # the primary key implies NOT NULL; no id to key a count on
+    with pytest.raises(IntegrityError), engine.begin() as conn:
+        conn.execute(insert(RUNS).values(**values))
+    with engine.connect() as conn:
+        after = conn.execute(select(func.count()).select_from(RUNS)).scalar_one()
+    assert after == before
