@@ -43,3 +43,12 @@ def test_load_pack_bad_field_fails_validation_naming_the_field(tmp_path: Path) -
 def test_load_pack_missing_file_names_the_pack(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="nope"):
         load_pack("nope", root=tmp_path)
+
+
+@pytest.mark.parametrize("name", ["pricing", "positioning_seo"])
+def test_load_pack_default_root_reads_the_packaged_yaml(name: str) -> None:
+    """The two packs L3 ships in `receipts.packs` load with no `root=` (the W2 wiring path)."""
+    pack = load_pack(name)
+    assert pack.id == name
+    assert pack.max_searches >= 1 and pack.max_fetches >= 1
+    assert "{subject}" in " ".join(pack.query_templates)
