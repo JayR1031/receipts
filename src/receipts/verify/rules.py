@@ -17,7 +17,8 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   - Fuzzy path: the coordinating session's ruling of 2026-11-15 01:11 UTC (the plan file's
     "Coordinator rulings"; a deliberate tightening of the spec's `partial_ratio >= 90` rule).
   - The per-place comparison: the gh-33 round-2 judge's HIGH #1 (a set test over the match
-    window let swapped prices verify). The wider window: the round-3 judge's HIGH #1.
+    window let swapped prices verify). The widened window: the round-3 judge's HIGH #1, with
+    the slack pad the round-3 judge prototyped and the round-4 judge proposed.
   - Exact path: the L2 judge's LOW 7 and the gh-33 judge's HIGH #1, with the edge rule set by
     the coordinating session.
 
@@ -37,30 +38,54 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
     occurrence falls through to the fuzzy rule.
   - **Fuzzy path**: each number token of the quote is compared with the page text at its
     aligned place, not with the whole page or the whole match window. The place comes from
-    `Indel.opcodes`, the character alignment behind the score, of the quote against the score
-    window widened by a quarter of the quote's length on each side (`_widened`: a score of 90
-    lets the matched page text run about 22% longer than the quote). There the page must have
-    exactly one number token, read whole even when the alignment cuts it, and it must equal the
-    quote's. So all of these are misses:
+    `Indel.opcodes`, the character alignment behind the score. The quote is aligned against the
+    score window widened on each side by its *slack* (`_slack`): the quote characters a first
+    alignment against the bare window left unmatched, plus the window's shortfall from the
+    quote's length. That reaches a first or last number the window cut off. Because it is no
+    wider than what the quote left out, a quote price seldom reaches past the page's own price
+    at that place (even a word price like `custom`) to the next plan's equal price; the label
+    limit below covers what remains. There the page must have exactly one number
+    token, read whole even when the alignment cuts it, and it must equal the quote's. So all of
+    these are misses:
     - `pro yearly: $19 billed` on `pro yearly: $199 billed. pro monthly: $19 billed.`;
     - quotes that swap the page's prices (`pro yearly: $19. pro monthly: $199.` on
       `pro yearly: $199. pro monthly: $19.`) or repeat one;
-    - a quote price whose characters the alignment spreads over two page prices (`team $9` on
-      `team $14, pro $9`).
+    - a quote price whose characters the alignment spreads over two page prices (`plus $49` on
+      `plus $29; max $49`);
+    - a quote that puts the next plan's price where the page has a word price
+      (`plus ... is $20` on `plus ... is custom; team is $20`).
 
     The note pairs each differing quote number with what the page has there, in quote order:
     `numbers differ (quote has $19, $199; page has $199, $19 there; ...)`.
   - **Known limit, labels are not checked (fail-open; also on `main`):** only numbers are
     compared, so a changed or dropped plan name next to a price can attach another plan's real
-    price. For example, `tier b: $29` verifies on `tier a: $29 ... tier b: $19`, and
-    `basic $200 pro max $1,999` verifies on `basic $200 pro $1,999 max $8`: the alignment drops
-    `max` because pairing the longer `$1,999` matches more characters. Tracked in GitHub issue
-    #45.
-  - **Known limit, large elisions fail closed:** a quote that leaves out more page text than
-    the widening covers can have its first or last number aligned with no page number. Then it
-    is a miss, and the note says `page has no number there`, although the page has the number
-    further on. For example, `the max plan is $200` on
-    `the max plan with priority support is $200`. Tracked in #45.
+    price. Each of these verifies:
+    - `tier b: $29` on `tier a: $29 ... tier b: $19`;
+    - `basic $200 pro max $1,999` on `basic $200 pro $1,999 max $8`: the alignment drops `max`,
+      because pairing the longer `$1,999` matches more characters;
+    - `the starter plan ... is $9 per seat` on `the starter plan ... is free. pro $9 per seat`:
+      the quote leaves out the page's own price word and the next label, so it carries on as
+      the next plan's text (a miss on `7363a43`).
+
+    Rates in PR #35's random tests at attempt 5 (the scripts are in the review records, not in
+    the repository):
+    - 2 of 160,000 quotes on two- to four-price pages;
+    - 22 of 7,439 on pages with a word price or a price sharing no character (`7363a43`: 22);
+    - 1 of 6,000 that leave words out before a price a short label from the next plan's
+      (`7363a43`: 0).
+
+    Tracked in GitHub issue #45.
+  - **Known limit, some true quotes fail closed:** the alignment can leave a quote number with
+    no page number, or with two, although the page has it. It is then a miss, and the note can
+    say `page has no number there`, although the page has the number further on. This happens:
+    - when the quote leaves out more page text than its slack covers (`the max plan is $200` on
+      `the max plan with priority support is $200`);
+    - when the quote leaves out words right next to its first or last price
+      (`pro $9, growth $15 a month` on `pro $9 per month, growth $15 a month`, and
+      `starter 2,500 seats $9` on `... starter 2,500 seats for $9.`).
+
+    Rates in PR #35's random tests at attempt 5: 10 of 5,998 true quotes, and 3 of 2,931 on
+    pages dense with prices; all 13 are the second case. Tracked in #45.
 
   A one-digit price change scores ~97. The aim is that a battlecard never shows a wrong number
   as verified; the known limits in this docstring are the exceptions. `normalize` keeps
@@ -325,16 +350,21 @@ def _aligned_range(
     return (before[-1] + 1 if before else 0), (after[0] if after else size)
 
 
-def _widened(start: int, end: int, size: int, limit: int) -> tuple[int, int]:
-    """The score window `[start, end)` widened by a quarter of the quote's `size` on each side.
+def _slack(char_map: Sequence[int | None], window_size: int) -> int:
+    """How far the score window may be widened on each side: the quote's characters it left out.
 
-    `partial_ratio` scores a window exactly `len(quote)` long, but the page text a quote matches
-    can be longer: with nothing deleted, a score of 90 allows `2 * size / 9` inserted page
-    characters (Indel: `1 - ins / (2 * size + ins) >= 0.9`), about 22% of the quote. A quarter on
-    each side covers that, so a quote's first and last numbers are aligned with the page's.
-    Clipped to the page, `[0, limit)`.
+    That is the quote characters the first alignment matched to nothing (`None` in `char_map`),
+    plus the window's shortfall from the quote's length (`partial_ratio`'s window is at most
+    `len(quote)` long, and is sometimes shorter). The page text the quote matches runs past the
+    window by about that much. A fixed pad (a quarter of the quote) let a quote price reach past
+    the page's own price slot, even a word price like `custom`, to the next plan's equal price
+    (gh-33 round-4 judge HIGH #1).
     """
-    pad = size // 4 + 1
+    return sum(1 for dest in char_map if dest is None) + max(0, len(char_map) - window_size)
+
+
+def _widened(start: int, end: int, pad: int, limit: int) -> tuple[int, int]:
+    """`[start, end)` widened by `pad` on each side, clipped to the page `[0, limit)`."""
     return max(0, start - pad), min(limit, end + pad)
 
 
@@ -343,14 +373,18 @@ def _number_mismatches(
 ) -> list[tuple[str, str]]:
     """`(quote token, page tokens there)` for each quote number the page lacks at that place.
 
-    `window` is the span of `body` the quote is aligned against (`_widened`). Each quote number
-    token must meet exactly one page number token at its aligned place (read whole by
-    `_numbers_at`), and that token must be equal. So a quote that swaps, repeats or shifts the
-    page's prices is a miss even though every price is in the window, and so is a quote price
-    whose characters the alignment spread over two page prices (`$9` across `$14, pro $9`).
+    `window` is the alignment's score window in `body`. The quote is aligned against it once to
+    find the characters it left out (`_slack`), then against the window widened by that much
+    (`_widened`). Each quote number token must meet exactly one page number token at its aligned
+    place (read whole by `_numbers_at`), and that token must be equal. So a quote that swaps,
+    repeats or shifts the page's prices is a miss even though every price is in the window, and
+    so is a quote price whose characters the alignment spread over two page prices (`$9` across
+    `$14, pro $9`).
     Pairs are in quote order and deduplicated; the page side is `no number` when there is none.
     """
     offset, stop = window
+    pad = _slack(_char_map(quote, body[offset:stop]), stop - offset)
+    offset, stop = _widened(offset, stop, pad, len(body))
     char_map = _char_map(quote, body[offset:stop])
     pairs: list[tuple[str, str]] = []
     for match in _NUMBER_TOKEN.finditer(quote):
@@ -377,7 +411,7 @@ def _fuzzy_miss(quote: str, body: str, spans: Sequence[tuple[int, int]]) -> str 
     score = 0.0 if alignment is None else alignment.score
     if alignment is None or score < FUZZY_THRESHOLD:
         return f"quote not found on page: best partial_ratio={score:.1f} < {FUZZY_THRESHOLD}"
-    window = _widened(alignment.dest_start, alignment.dest_end, len(quote), len(body))
+    window = (alignment.dest_start, alignment.dest_end)
     mismatches = _number_mismatches(quote, body, spans, window)
     if mismatches:
         # Name what the page says there: "$19 not on page" is false when "$19" is on the page
