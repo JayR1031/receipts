@@ -136,16 +136,169 @@ def test_thousands_comma_in_claim_or_quote_still_verifies(claim_text: str, quote
 
 def test_claim_text_is_normalized_before_its_numbers_are_read() -> None:
     # Same `normalize()` as quote and page: a markdown link keeps its text and loses its URL, so
-    # the `2` in `/v2/` is not a claim number.
+    # the `2.1` in `/v2.1/` (a value token: it has a decimal part) is not a claim number.
     url = "https://tokens.example/"
     text = "Basic is $19.99 per seat per month, billed yearly."
     claim = claim_with_quote(
-        "Basic is [$19.99 per seat](https://tokens.example/v2/plans).",
+        "Basic is [$19.99 per seat](https://tokens.example/v2.1/plans).",
         url,
         "Basic is $19.99 per seat per month",
     )
     out = verify_claim(claim, page(url, text), [])
     assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
+
+
+def test_claim_number_note_is_sorted_and_deduplicated() -> None:
+    # gh-33 judge LOW #5: "$200" twice and "$180" after it; the note lists each once, sorted.
+    url = "https://tokens.example/"
+    claim = claim_with_quote(
+        "Max is $200 a month, $180 billed yearly, or $200 with support.",
+        url,
+        "Max includes priority support",
+    )
+    out = verify_claim(claim, page(url, "Max includes priority support and audit logs."), [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note == "claim numbers not in quote: $180, $200"
+
+
+# --- which claim numbers the rule reads: value tokens only (gh-33 judge MEDIUM #3) -------------
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "quote", "text"),
+    [
+        ("As of 2025, Pro costs $20/month.", "Pro costs $20/month", "Pro costs $20/month."),
+        ("Pro 2 costs $20/month.", "$20/month", "Pro 2: $20/month."),
+        ("Pro includes GPT-4 for $20/month.", "$20/month", "Pro: $20/month with all models."),
+        ("Pro adds 24/7 support for $20/month.", "$20/month", "Pro: $20/month."),
+    ],
+    ids=["year", "plan-name", "model-name", "24-7"],
+)
+def test_bare_integers_in_the_claim_are_not_checked(claim_text: str, quote: str, text: str) -> None:
+    # A bare integer (no currency sign, %, decimal part or thousands separator) is a year, a plan
+    # or model name, or "24/7" far more often than a price; the claim rule reads value tokens only.
+    url = "https://tokens.example/"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, text), [])
+    assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "missing"),
+    [
+        ("Pro costs $24/month.", "$24"),
+        ("Pro costs €24/month.", "€24"),
+        ("Annual billing saves 25%.", "25%"),
+        ("Pro includes 19.5 hours of compute.", "19.5"),
+        ("Pro includes 2,500 credits.", "2,500"),
+    ],
+    ids=["dollar", "euro", "percent", "decimal", "thousands-separator"],
+)
+def test_value_tokens_in_the_claim_are_checked(claim_text: str, missing: str) -> None:
+    url = "https://tokens.example/"
+    text = "Pro costs $20/month and includes 1000 credits."
+    claim = claim_with_quote(claim_text, url, "Pro costs $20/month")
+    out = verify_claim(claim, page(url, text), [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note == f"claim numbers not in quote: {missing}"
+
+
+# --- the same value written differently (gh-33 judge MEDIUM #2) ------------------------------
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "quote", "text"),
+    [
+        ("Pro costs $20.00 per month.", "Pro costs $20 per month", "Pro costs $20 per month."),
+        ("Pro costs $20.0 per month.", "Pro costs $20 per month", "Pro costs $20 per month."),
+        ("Pro costs $20 per month.", "Pro costs $20.00 per month", "Pro costs $20.00 per month."),
+        ("Save 20% on annual.", "Save 20 percent yearly", "Save 20 percent yearly."),
+        ("Save 20% on annual.", "Save 20 % yearly", "Save 20 % yearly."),
+        ("Save 20 percent on annual.", "Save 20% yearly", "Save 20% yearly."),
+    ],
+    ids=[
+        "zero-cents-in-claim",
+        "zero-tenths-in-claim",
+        "zero-cents-in-quote",
+        "percent-word-in-quote",
+        "percent-space-in-quote",
+        "percent-word-in-claim",
+    ],
+)
+def test_same_value_written_differently_verifies(claim_text: str, quote: str, text: str) -> None:
+    url = "https://tokens.example/"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, text), [])
+    assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
+
+
+def test_percent_word_in_the_claim_is_a_value_token() -> None:
+    # "25 percent" normalizes to "25%", so it is checked; read as a bare "25" it would be skipped
+    # and a wrong percentage would verify.
+    url = "https://tokens.example/"
+    claim = claim_with_quote(
+        "Annual billing saves 25 percent.", url, "Save 20% when billed annually"
+    )
+    out = verify_claim(claim, page(url, "Save 20% when billed annually."), [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note == "claim numbers not in quote: 25%"
+
+
+@pytest.mark.parametrize(
+    "claim_text",
+    ["Starter is $0 a month.", "Starter is $0.00 a month.", "Starter costs 0 dollars a month."],
+    ids=["dollar-zero", "dollar-zero-cents", "zero-dollars-words"],
+)
+def test_zero_price_in_the_claim_is_matched_by_free_in_the_quote(claim_text: str) -> None:
+    # Coordinator, from live run run-6a5fe9499c4d: one false positive of 19 quote-receipt claims
+    # was a claim saying "$0" against a quote saying "free". A zero price and "free" are the
+    # same value written two ways.
+    url = "https://tokens.example/"
+    quote = "Starter is free for small teams"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, f"{quote}."), [])
+    assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "quote", "missing"),
+    [
+        ("Starter is $0 a month.", "Starter is open to small teams", "$0"),
+        ("Starter is $5 a month.", "Starter is free for small teams", "$5"),
+        ("Starter is $0 a month.", "Starter gives freedom to small teams", "$0"),
+        ("Starter is $0.50 a month.", "Starter is free for small teams", "$0.50"),
+    ],
+    ids=["no-free-in-quote", "nonzero-price", "free-inside-a-longer-word", "nonzero-cents"],
+)
+def test_free_in_the_quote_covers_only_a_zero_price(
+    claim_text: str, quote: str, missing: str
+) -> None:
+    url = "https://tokens.example/"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, f"{quote}."), [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note == f"claim numbers not in quote: {missing}"
+
+
+def test_zero_cents_quote_fuzzy_matches_a_whole_dollar_page() -> None:
+    # Quote "$20.00", page "$20": not a substring, so the fuzzy path's number check needs the
+    # same canonical form as the claim rule.
+    url = "https://tokens.example/"
+    text = "Pro costs $20 per seat per month, billed yearly, with audit logs."
+    claim = claim_with_quote(
+        "Pro costs $20 per seat.", url, "Pro costs $20.00 per seat per month, billed yearly"
+    )
+    out = verify_claim(claim, page(url, text), [])
+    assert (out.verified, out.verify_method) == (True, "quote_fuzzy")
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "missing"),
+    [("Pro costs $20.05 per month.", "$20.05"), ("Pro costs $20.50 per month.", "$20.50")],
+    ids=["nonzero-cents", "nonzero-tenths"],
+)
+def test_nonzero_cents_are_not_dropped(claim_text: str, missing: str) -> None:
+    url = "https://tokens.example/"
+    claim = claim_with_quote(claim_text, url, "Pro costs $20 per month")
+    out = verify_claim(claim, page(url, "Pro costs $20 per month."), [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note == f"claim numbers not in quote: {missing}"
 
 
 # --- precedence and scope ----------------------------------------------------------------
@@ -183,7 +336,15 @@ def test_page_check_outcome_wins_over_the_claim_number_check(
 def test_search_receipt_claims_are_out_of_scope(
     sample_claims: list[Claim], sample_search_results: list[SearchResult]
 ) -> None:
-    # sample_claims[1] says "14 dollars" and has only a search receipt: no quote to check against.
-    claim = sample_claims[1].model_copy(update={"verified": False, "verify_method": None})
+    # sample_claims[1] has only a search receipt: no quote to check against. Its text is given a
+    # value token ("$14"; a bare "14 dollars" is not checked at all), so applying the claim rule
+    # here would turn this claim red.
+    claim = sample_claims[1].model_copy(
+        update={
+            "text": "Zeta Team is $14 per seat per month.",
+            "verified": False,
+            "verify_method": None,
+        }
+    )
     out = verify_claim(claim, {}, sample_search_results)
     assert (out.verified, out.verify_method, out.verify_note) == (True, "search_log", None)
