@@ -732,11 +732,23 @@ def test_known_limit_a_dropped_plan_label_attaches_another_plans_price(
             "quote not found on page: numbers differ (quote has $200; page has no number there; "
             "partial_ratio=91.6)",
         ),
+        (
+            "Up to 1 000 seats on the team plan, billed yearly.",
+            "Up to 1,000 seats on the team plan, billed yearly",
+            "quote not found on page: numbers differ (quote has 1,000; page has 1, 000 there; "
+            "partial_ratio=98.0)",
+        ),
     ],
-    ids=["quote-order-kept", "known-limit-gap-past-the-window", "known-limit-words-left-out"],
+    ids=[
+        "quote-order-kept",
+        "known-limit-gap-past-the-window",
+        "known-limit-words-left-out",
+        "number-split-by-the-page",
+    ],
 )
 def test_numbers_differ_note_exact(text: str, quote: str, note: str) -> None:
-    # gh-33 round-3 judge LOW #2: the pairs stay in quote order (not sorted). The other two
+    # gh-33 round-3 judge LOW #2: the pairs stay in quote order (not sorted), and a quote number
+    # whose characters the page splits into two tokens names both ("1, 000"). The other two
     # cases pin the fail-closed known limit (module docstring): the quote's last number falls
     # past the score window, so the note says "no number there" although the page has the price
     # just past it ($14; $200 after "with priority support"). Both fail closed.
