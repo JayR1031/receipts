@@ -1,8 +1,10 @@
 """Lazy settings. Nothing here runs at import; `get_settings()` reads the environment on
-first call so the image boots with no secrets (ADR-0005). Frozen after Wave 0.
+first call so the image boots with no secrets (ADR-0005). Frozen after Wave 0; ADR-0008
+lifted the freeze for issue #41 only, to add the five sign-in and limit names.
 
-The five names this module knows: ANTHROPIC_API_KEY, KEENABLE_API_KEY, DATABASE_URL,
-DEMO_PASSCODE, MAX_CONCURRENT_SPECIALISTS. Nothing else is read here.
+The ten names this module knows: ANTHROPIC_API_KEY, KEENABLE_API_KEY, DATABASE_URL,
+DEMO_PASSCODE, MAX_CONCURRENT_SPECIALISTS, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+SESSION_SECRET, RUNS_PER_USER_PER_DAY, SIGNED_OUT_RUNS_PER_DAY. Nothing else is read here.
 """
 
 from __future__ import annotations
@@ -21,6 +23,11 @@ class Settings(BaseSettings):
     database_url: str | None = None
     demo_passcode: SecretStr | None = None
     max_concurrent_specialists: int = 4
+    google_client_id: str | None = None
+    google_client_secret: SecretStr | None = None
+    session_secret: SecretStr | None = None
+    runs_per_user_per_day: int = 5
+    signed_out_runs_per_day: int = 20
 
 
 @lru_cache(maxsize=1)
