@@ -113,11 +113,15 @@ def _assert_rejected(
     engine: Engine, values: dict[str, object], sqlstate: str | None = None
 ) -> None:
     run_id = str(values["id"])
-    with pytest.raises(IntegrityError) as excinfo, engine.begin() as conn:
-        conn.execute(insert(RUNS).values(**values))
-    if sqlstate is not None:
-        assert _sqlstate(excinfo.value) == sqlstate
-    assert _count(engine, run_id) == 0
+    try:
+        with pytest.raises(IntegrityError) as excinfo, engine.begin() as conn:
+            conn.execute(insert(RUNS).values(**values))
+        if sqlstate is not None:
+            assert _sqlstate(excinfo.value) == sqlstate
+        assert _count(engine, run_id) == 0
+    finally:  # a constraint that is ever missing must not leave a row in the live table
+        with engine.begin() as conn:
+            conn.execute(delete(RUNS).where(RUNS.c.id == run_id))
 
 
 def _new_sub() -> str:

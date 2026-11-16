@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import func, select
 
-from receipts.contracts import RunId, RunSummary
+from receipts.contracts import Battlecard, RunId, RunSummary, StartedEvent
 from receipts.db import SqlRunRepo, SqlUserRepo, UserRow, create_schema, make_engine
 from receipts.settings import MissingSettingError, get_settings
 
@@ -169,16 +169,45 @@ async def test_list_runs_still_returns_every_run(repos: Repos) -> None:
     assert [s.run_id for s in await repos.runs.list_runs()] == [claimed, unclaimed]
 
 
-async def test_a_claim_survives_the_later_save_run_and_save_battlecard(repos: Repos) -> None:
-    """The harness writes the run again after `start` returns (terminal `save_run`)."""
+async def _still_claimed(repos: Repos, user_id: str, run_id: RunId) -> None:
+    assert [s.run_id for s in await repos.runs.list_runs_for(user_id)] == [run_id]
+    assert await repos.runs.list_runs_for(None) == []
+
+
+async def test_a_claim_survives_the_later_save_run_append_event_and_save_battlecard(
+    repos: Repos,
+) -> None:
+    """The harness writes the run again after `start` returns: all three writes keep the claim."""
     user = await repos.users.get_or_create(SUB, EMAIL, T0)
     claimed = await _run(repos, "run-claimed", T0, user.id)
 
-    done = _summary("run-claimed", T0).model_copy(update={"status": "done"})
-    await repos.runs.save_run(done)
+    await repos.runs.save_run(_summary("run-claimed", T0).model_copy(update={"status": "done"}))
+    await _still_claimed(repos, user.id, claimed)
 
-    assert [s.run_id for s in await repos.runs.list_runs_for(user.id)] == [claimed]
-    assert await repos.runs.list_runs_for(None) == []
+    await repos.runs.append_event(
+        StartedEvent(
+            run_id=claimed,
+            ts=T0,
+            subject="Acme Widgets",
+            rival="Zeta Gadgets",
+            domains=("pricing",),
+        )
+    )
+    await _still_claimed(repos, user.id, claimed)
+
+    await repos.runs.save_battlecard(
+        Battlecard(
+            run_id=claimed,
+            subject="Acme Widgets",
+            rival="Zeta Gadgets",
+            claims=(),
+            verified_count=0,
+            total_count=0,
+            started_at=T0,
+            finished_at=T0 + timedelta(minutes=1),
+        )
+    )
+    await _still_claimed(repos, user.id, claimed)
 
 
 async def test_claim_run_on_a_missing_run_raises_lookup_error(repos: Repos) -> None:
