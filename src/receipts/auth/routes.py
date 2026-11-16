@@ -10,10 +10,14 @@
   for the ID token's signature-verified claims; `validate_claims` checks issuer, audience,
   expiry and nonce against this attempt and the clock. Only then is the `users` row read or
   created (`sub` and `email`, nothing else) and the session cookie (our user id and its expiry,
-  7 days) set; the round-trip cookie is cleared and the browser goes (302) to `/ui`. Every
-  failure is 400 with the detail `sign-in check failed: <check>`, naming the check and never a
-  value; it sets no session cookie and writes no row. A failure after the round-trip cookie
-  verified also clears that cookie, so an attempt is not retried with the same values.
+  7 days) set; the round-trip cookie is cleared and the browser goes (302) to `/ui`. A failed
+  check is 400 and writes no row. A database error while that row is read or written (any
+  `SQLAlchemyError`) is 503, and the error is dropped unread: its text carries the bound `sub`
+  and email, so it is never returned, raised again or logged. Both answer with the detail
+  `sign-in check failed: <check>` (`user_store` for the database), naming the check and never
+  a value, and set no session cookie. Every failure after the round-trip cookie verified, a
+  failed check and a database error alike, also clears that cookie, so an attempt is not
+  retried with the same values.
 - `POST /auth/logout` clears the session cookie and answers 303 See Other to `/ui`: 303, so the
   browser follows with a GET whatever the form's method (Starlette's default 307 would repeat
   the POST). It needs no CSRF token: all it does is clear a cookie, and the worst a forged
@@ -50,6 +54,7 @@ from typing import Final, cast
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, SecretStr
+from sqlalchemy.exc import SQLAlchemyError
 
 from receipts.api.models import ErrorDetail
 from receipts.auth.models import AuthError, SessionUser, User
@@ -110,6 +115,8 @@ SIGN_IN_NAMES: Final = (
     "SESSION_SECRET",
     "DATABASE_URL",
 )
+# The check a database error on the `users` row is reported as.
+_USER_STORE: Final = "user_store"
 
 
 class Me(BaseModel):
@@ -260,7 +267,8 @@ async def _finish_login(
 ) -> User:
     """The signed-in user. Raises `AuthError` naming the first failed check: `state`, `code`,
     the provider's (`token_exchange`, `jwks`, `id_token`) or `validate_claims`' (`iss`, `aud`,
-    `exp`, `nonce`). Nothing is written before every check has passed."""
+    `exp`, `nonce`). Nothing is written before every check has passed. A database error from
+    the user repo propagates as SQLAlchemy raised it; `callback` drops it and answers 503."""
     if not _same_state(attempt.state, state):
         raise AuthError("state")
     if not code:
@@ -279,11 +287,11 @@ def _set_session(response: Response, user: User, config: SignInConfig, now: date
     response.set_cookie(SESSION_COOKIE, token, max_age=SESSION_MAX_AGE, **COOKIE_FLAGS)
 
 
-def _refused(check: str, *, clear_round_trip: bool) -> JSONResponse:
-    """400 in FastAPI's error shape, naming the failed check only."""
-    response = JSONResponse(
-        {"detail": f"sign-in check failed: {check}"}, status_code=status.HTTP_400_BAD_REQUEST
-    )
+def _refused(
+    check: str, *, clear_round_trip: bool, status_code: int = status.HTTP_400_BAD_REQUEST
+) -> JSONResponse:
+    """`status_code` (400 unless given) in FastAPI's error shape, naming the failed check only."""
+    response = JSONResponse({"detail": f"sign-in check failed: {check}"}, status_code=status_code)
     if clear_round_trip:
         response.delete_cookie(ROUND_TRIP_COOKIE, **COOKIE_FLAGS)
     return response
@@ -291,6 +299,10 @@ def _refused(check: str, *, clear_round_trip: bool) -> JSONResponse:
 
 _REFUSED: Final = {"model": ErrorDetail, "description": "A sign-in check failed; names it."}
 _UNAVAILABLE: Final = {"model": ErrorDetail, "description": "Sign-in is not configured."}
+_CALLBACK_UNAVAILABLE: Final = {
+    "model": ErrorDetail,
+    "description": "Sign-in is not configured, or the users store failed (`user_store`).",
+}
 
 
 @router.get(
@@ -310,7 +322,7 @@ async def login(request: Request) -> RedirectResponse:
     "/callback",
     status_code=status.HTTP_302_FOUND,
     response_class=RedirectResponse,
-    responses={400: _REFUSED, 503: _UNAVAILABLE},
+    responses={400: _REFUSED, 503: _CALLBACK_UNAVAILABLE},
 )
 async def callback(request: Request, code: str | None = None, state: str | None = None) -> Response:
     config = _availability(get_settings())
@@ -322,6 +334,10 @@ async def callback(request: Request, code: str | None = None, state: str | None 
         user = await _finish_login(request, config, attempt, code=code, state=state, now=now)
     except AuthError as exc:
         return _refused(exc.check, clear_round_trip=True)
+    except SQLAlchemyError:
+        # Unbound and unread: its text carries the `sub` and email, so nothing re-raises it.
+        unavailable = status.HTTP_503_SERVICE_UNAVAILABLE
+        return _refused(_USER_STORE, clear_round_trip=True, status_code=unavailable)
     response = RedirectResponse(UI_PATH, status_code=status.HTTP_302_FOUND)
     _set_session(response, user, config, now)
     response.delete_cookie(ROUND_TRIP_COOKIE, **COOKIE_FLAGS)
