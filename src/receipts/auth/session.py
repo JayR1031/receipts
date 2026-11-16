@@ -100,11 +100,14 @@ def _verify(token: str, secret: SecretStr, model: type[_C], now: datetime) -> _C
 
     `jwt.decode` checks the signature before it parses the payload; `model` then accepts only
     the claims of this kind of cookie. An empty secret verifies nothing, so it is `None` too.
+    `TypeError` is caught because joserfc 1.8.0 raises it, not a `JoseError`, for some
+    malformed headers (a `crit` that is not a list, a header that is a JSON list) before it
+    checks the signature. pydantic's `ValidationError` is a `ValueError`.
     """
     try:
         key = OctKey.import_key(secret.get_secret_value())
         claims = model.model_validate(jwt.decode(token, key, algorithms=[_ALG]).claims)
-    except (JoseError, ValueError):  # pydantic's ValidationError is a ValueError
+    except (JoseError, ValueError, TypeError):
         return None
     if _moment(claims.exp) <= now:
         return None
