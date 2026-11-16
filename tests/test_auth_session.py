@@ -92,9 +92,17 @@ def _signed(claims: dict[str, object], *, alg: str = "HS256", secret: str = SECR
 
 
 def _garbage(exp: int) -> list[object]:
-    """Malformed or foreign tokens; each must verify to `None`, whichever kind is expected."""
-    unsigned = _encode({"alg": "none", "typ": "JWT"}) + "." + _encode({"uid": "u-0001", "exp": exp})
+    """Malformed or foreign tokens; each must verify to `None`, whichever kind is expected.
+
+    The two header cases come from a fuzz run: joserfc 1.8.0 raises `TypeError`, not a
+    `JoseError`, for a `crit` that is not a list and for a header that is a JSON list, before
+    it checks the signature, so a visitor's cookie could otherwise reach the route as a 500.
+    """
+    payload = _encode({"uid": "u-0001", "exp": exp})
+    unsigned = _encode({"alg": "none", "typ": "JWT"}) + "." + payload
     cases = {
+        "crit-not-a-list": _encode({"alg": "HS256", "crit": True}) + "." + payload + ".AAAA",
+        "header-is-a-list": _encode(["alg", "HS256"]) + "." + payload + ".AAAA",
         "empty": "",
         "one-word": "garbage",
         "three-words": "a.b.c",
