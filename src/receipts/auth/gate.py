@@ -6,8 +6,9 @@ on `app.state.gate` before it calls `mount_ui(app)`, as it stores `run_starter` 
 did before issue #41.
 
 UI handlers that need identity take Gradio's `gr.Request` and pass its Starlette request
-(`gr.Request.request`) to `identify`. Gradio's `auth_dependency` is not used: it answers 401 to
-every signed-out visitor, and sign-in is optional (option b).
+(`gr.Request.request`) to `identify`. Gradio's mount-time auth hook (the dependency argument of
+`mount_gradio_app`) is not used: it answers 401 to every signed-out visitor, and sign-in is
+optional (option b).
 """
 
 from __future__ import annotations
