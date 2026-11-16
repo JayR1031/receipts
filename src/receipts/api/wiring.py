@@ -42,6 +42,11 @@ settings per call, never in `create_app()`.
   `PermissionError("KEENABLE_API_KEY is not set")` (the name only), so the UI needs to recognise
   only `PermissionError`; then the run starts on the same proxy the UI follows for events, and a
   signed-in user's run is claimed right after (the brief's accepted sub-second unclaimed window).
+  A session is signed in only while its `users` row exists: `identify` reads no database, so
+  `start` reads the row first, as `account` does. A row the owner deleted (the cookie lives 7
+  days), or no live repo to read it from, means signed out: the passcode and the signed-out cap
+  apply and the run is never claimed (on Postgres the claim would fail on the foreign key after
+  the run had started).
 - `history`: that user's runs, or the runs with no user; `account`: the email, today's count and
   the limit that applies. On the demo nothing is stored, so History is the demo's list and the
   account line is zeros with sign-in hidden.
@@ -72,7 +77,7 @@ from pydantic import SecretStr
 from starlette.requests import Request
 
 from receipts.auth.limits import may_start
-from receipts.auth.models import AccountStatus, SessionUser, StartDecision
+from receipts.auth.models import AccountStatus, SessionUser, StartDecision, User
 from receipts.auth.routes import Clock, current_user, missing_sign_in_settings
 from receipts.contracts import (
     Battlecard,
@@ -466,18 +471,27 @@ class LiveGate:
     def identify(self, request: Request) -> SessionUser | None:
         return current_user(request, get_settings(), self._clock())
 
+    async def _row(self, repo: SqlRunRepo | None, user: SessionUser | None) -> User | None:
+        """The session's `users` row, or `None`: signed out, no live repo (so no users table to
+        read), or a row the owner deleted while the cookie is still valid. `identify` reads no
+        database, so `start` and `account` both read the row here."""
+        if user is None or repo is None:
+            return None
+        return await _user_repo_for(self._app, repo).get(user.user_id)
+
     async def start(self, request: RunRequest, passcode: str, user: SessionUser | None) -> RunId:
         settings = get_settings()
         if not passcode_configured(settings) and _serves_demo(self._service):
             return await self._service.start(request)  # local demo: no passcode, not counted
         repo = await self._service.live_repo()
-        decision = await _decide(repo, settings, passcode, user, self._clock()())
+        visitor = user if await self._row(repo, user) is not None else None
+        decision = await _decide(repo, settings, passcode, visitor, self._clock()())
         if not decision.allowed:
             raise PermissionError(decision.reason)
         _require_key(settings)  # after the start rule: a stranger learns nothing about the key
         run_id = await self._service.start(request)
-        if user is not None and repo is not None:
-            await repo.claim_run(run_id, user.user_id)
+        if visitor is not None and repo is not None:
+            await repo.claim_run(run_id, visitor.user_id)
         return run_id
 
     async def history(self, user: SessionUser | None) -> list[RunSummary]:
@@ -488,7 +502,7 @@ class LiveGate:
         if repo is None:
             return _DEMO_ACCOUNT
         settings = get_settings()
-        found = None if user is None else await _user_repo_for(self._app, repo).get(user.user_id)
+        found = await self._row(repo, user)
         now = self._clock()()
         available = not missing_sign_in_settings(settings)
         if found is None:  # signed out, or a session whose user row is gone
