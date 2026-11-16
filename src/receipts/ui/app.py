@@ -269,12 +269,14 @@ def _history_panel(service: RunService, blocks: gr.Blocks, gate: Gate | None) ->
 def _wire_account(
     blocks: gr.Blocks, gate: Gate, account: gr.HTML, passcode: gr.Textbox, started: Dependency
 ) -> None:
-    """Fill the account line and the passcode field on page load."""
+    """Fill the account line and the passcode field on page load, and recount after each run
+    (a stale count would misstate how many runs are left today)."""
 
     async def on_account(request: gr.Request | None) -> tuple[str, dict[str, Any]]:
         return await account_view(gate, request)
 
     blocks.load(on_account, outputs=[account, passcode], api_name="account")
+    started.then(on_account, outputs=[account, passcode])
 
 
 def build_ui(

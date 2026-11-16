@@ -426,7 +426,7 @@ def test_build_ui_with_a_gate_recounts_the_account_line_after_each_run(
 ) -> None:
     """A run moves today's count, so the line is refreshed once the run's stream ends."""
     gate = FakeGate(fake_run_service, user=USER, status=SIGNED_IN)
-    deps = build_ui(fake_run_service, gate=gate).get_config_file()["dependencies"]
+    deps = build_ui(fake_run_service, gate=gate).get_config_file().get("dependencies", [])
     by_name = {dep["api_name"]: dep for dep in deps}
     start, account = by_name["on_start"], by_name["account"]
     after_start = [dep for dep in deps if dep["trigger_after"] == start["id"]]
