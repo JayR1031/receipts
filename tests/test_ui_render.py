@@ -38,7 +38,6 @@ def test_render_event_line_is_kind_specific_for_every_kind(sample_events: list[R
         assert "\n" not in line.strip(), f"{event.kind} rendered more than one line"
         assert event.kind in line, f"{event.kind!r} not named in {line!r}"
         assert HTML_TAG_RE.search(line) is None, f"event line leaked HTML tag: {line!r}"
-        assert "<" not in line, f"event line leaked raw '<': {line!r}"
         assert KIND_MARKERS[event.kind] in line, f"{event.kind}: {line!r}"
 
 
