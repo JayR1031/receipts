@@ -107,8 +107,8 @@ async def start_run(
 
 @router.get("/runs", response_model=list[RunSummary])
 async def list_runs(request: Request, service: ServiceDep) -> list[RunSummary]:
-    """History, newest first whatever order the service hands back: the signed-in user's runs
-    with a valid session cookie, else the runs that belong to no user (module docstring)."""
+    """History, newest first: with a valid session cookie, the signed-in user's runs; without
+    one, the runs that belong to no user (started with the passcode)."""
     user = current_user(request, get_settings(), get_clock(request))
     summaries = await history_for(service, user)
     return sorted(summaries, key=lambda s: s.started_at, reverse=True)
