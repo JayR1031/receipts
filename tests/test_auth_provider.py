@@ -425,6 +425,16 @@ async def test_a_cached_key_is_not_fetched_again(
     assert len(google.to(JWKS_URL)) == 1
 
 
+async def test_an_empty_kid_is_rejected_without_a_refetch(
+    provider: GoogleIdentityProvider, google: FakeGoogle, google_key: RSAKey
+) -> None:
+    await _exchange(provider)
+    google.token = _token_reply(_id_token(google_key, kid=""))
+
+    assert (await _failure(provider)).check == "id_token"
+    assert len(google.to(JWKS_URL)) == 1
+
+
 async def test_an_unknown_kid_is_refetched_once_then_rejected(
     provider: GoogleIdentityProvider, google: FakeGoogle, google_key: RSAKey
 ) -> None:
@@ -618,6 +628,9 @@ REFUSED_KEY_SETS: dict[str, Callable[[RSAKey], Reply | httpx.HTTPError]] = {
         {"keys": [{"kty": "RSA", "kid": KID, "n": key.as_dict(private=False)["n"], "e": 65537}]}
     ),
     "symmetric-key-only": lambda key: _symmetric_key_set(),
+    "key-type-as-a-list": lambda key: _json(
+        {"keys": [{**key.as_dict(private=False), "kty": ["RSA"]}]}
+    ),
     "connect-timeout": lambda key: httpx.ConnectTimeout("synthetic timeout"),
 }
 
