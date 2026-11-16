@@ -22,7 +22,7 @@ class RunAccepted(BaseModel):
 
 
 class ErrorDetail(BaseModel):
-    """FastAPI's error envelope, named so the OpenAPI document shows it on 401/404/503."""
+    """FastAPI's error envelope, named so the OpenAPI document shows it on 401/404/429/503."""
 
     model_config = ConfigDict(frozen=True)
     detail: str
