@@ -471,10 +471,9 @@ REJECTED_ID_TOKENS: dict[str, TokenMaker] = {
         algorithms=["HS256"],
     ),
     "rs512-google-key": lambda google, impostor: _id_token(_without_alg(google), alg="RS512"),
-    "alg-none": lambda google, impostor: _encode({"alg": "none", "kid": KID})
-    + "."
-    + _encode(CLAIMS)
-    + ".",
+    "alg-none": lambda google, impostor: (
+        _encode({"alg": "none", "kid": KID}) + "." + _encode(CLAIMS) + "."
+    ),
     "payload-tampered": lambda google, impostor: _tampered(_id_token(google)),
     "no-kid": lambda google, impostor: jwt.encode(
         {"alg": "RS256"}, CLAIMS, google, algorithms=["RS256"]
@@ -497,7 +496,9 @@ REJECTED_ID_TOKENS: dict[str, TokenMaker] = {
     ),
     "missing-nonce": lambda google, impostor: _id_token(google, _without("nonce")),
     "missing-email": lambda google, impostor: _id_token(google, _without("email")),
-    "audience-is-a-list": lambda google, impostor: _id_token(google, {**CLAIMS, "aud": [CLIENT_ID]}),
+    "audience-is-a-list": lambda google, impostor: _id_token(
+        google, {**CLAIMS, "aud": [CLIENT_ID]}
+    ),
 }
 
 
@@ -549,7 +550,9 @@ REFUSED_KEY_SETS: dict[str, Callable[[RSAKey], Reply | httpx.HTTPError]] = {
     "no-keys-field": lambda key: _json({}),
     "empty-keys": lambda key: _json({"keys": []}),
     "unknown-key-type-only": lambda key: _json({"keys": [{"kty": "XX", "kid": KID}]}),
-    "bad-modulus": lambda key: _json({"keys": [{"kty": "RSA", "kid": KID, "n": "!!", "e": "AQAB"}]}),
+    "bad-modulus": lambda key: _json(
+        {"keys": [{"kty": "RSA", "kid": KID, "n": "!!", "e": "AQAB"}]}
+    ),
     "missing-exponent": lambda key: _json(
         {"keys": [{"kty": "RSA", "kid": KID, "n": key.as_dict(private=False)["n"]}]}
     ),
