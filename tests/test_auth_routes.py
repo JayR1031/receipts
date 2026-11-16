@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -34,6 +35,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import Engine, func, select
+from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
@@ -46,7 +48,7 @@ from receipts.auth.fake import (
     FakeIdentityProvider,
     fake_claims,
 )
-from receipts.auth.models import IdTokenClaims, SessionUser
+from receipts.auth.models import IdTokenClaims, SessionUser, User
 from receipts.auth.oidc import (
     GOOGLE_AUTHORIZATION_ENDPOINT,
     LOCAL_CALLBACK_URL,
@@ -400,6 +402,7 @@ def test_a_callback_with_a_wrong_state_is_400_and_sets_no_session(
     cookies = set_cookies(response)
     assert SESSION_COOKIE not in cookies
     assert cleared(cookies[ROUND_TRIP_COOKIE])
+    assert_auth_flags(cookies[ROUND_TRIP_COOKIE])  # same path and flags, or the browser keeps it
     assert h.fake.calls == []
     assert user_count(h.engine) == 0
 
@@ -492,6 +495,7 @@ def test_claims_that_fail_validation_set_no_session_and_write_no_row(
     cookies = set_cookies(response)
     assert SESSION_COOKIE not in cookies
     assert cleared(cookies[ROUND_TRIP_COOKIE])
+    assert_auth_flags(cookies[ROUND_TRIP_COOKIE])  # same path and flags, or the browser keeps it
     assert user_count(h.engine) == 0
     assert len(h.fake.calls) == 1
 
@@ -522,6 +526,70 @@ def test_a_refusal_never_echoes_the_email_the_code_or_a_cookie(h: Harness) -> No
     response = callback(h, attempt, _wrong_nonce(attempt))
     for value in (FAKE_EMAIL, FAKE_SUB, CODE, attempt.state, attempt.nonce, round_trip):
         assert value not in response.text
+
+
+# A second synthetic identity, so the leak checks below cannot match a value set elsewhere.
+STORE_SUB = "fake-sub-store-0002"
+STORE_EMAIL = "store-user@example.com"
+
+
+@dataclass
+class FailingUserRepo:
+    """A `users` store that is down. `get_or_create` raises as `SqlUserRepo` would: an error
+    whose text carries the statement's bound parameters, so the `sub` and email it was given."""
+
+    error: type[DBAPIError]
+    raised: list[DBAPIError] = field(default_factory=list[DBAPIError])
+
+    async def get_or_create(self, sub: str, email: str, now: datetime) -> User:
+        error = self.error(
+            "INSERT INTO users (id, sub, email, created_at) VALUES (?, ?, ?, ?)",
+            ("user-store-0002", sub, email, now.isoformat()),
+            Exception("database is locked"),
+        )
+        self.raised.append(error)
+        raise error
+
+
+def _logged(records: list[logging.LogRecord]) -> str:
+    """Every record as a handler would write it, traceback and exception text included."""
+    formatter = logging.Formatter("%(name)s %(levelname)s %(message)s")
+    return "\n".join(formatter.format(record) for record in records)
+
+
+@pytest.mark.parametrize("error", [OperationalError, IntegrityError])
+def test_a_user_store_failure_is_503_clears_the_round_trip_and_leaks_no_identity(
+    h: Harness,
+    error: type[DBAPIError],
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verdict `routes` finding 1. The default `TestClient` re-raises an exception that escapes
+    the app, which is what uvicorn would log with its text: the email and the `sub`."""
+    caplog.set_level(logging.DEBUG)
+    repo = FailingUserRepo(error)
+    h.app.state.user_repo = repo
+    attempt = login(h)
+    claims = fake_claims(sub=STORE_SUB, email=STORE_EMAIL, nonce=attempt.nonce, aud=CLIENT_ID)
+    response = callback(h, attempt, claims)
+    assert response.status_code == 503, response.text
+    assert response.json() == {"detail": "sign-in check failed: user_store"}
+    cookies = set_cookies(response)
+    assert SESSION_COOKIE not in cookies
+    assert cleared(cookies[ROUND_TRIP_COOKIE])
+    assert_auth_flags(cookies[ROUND_TRIP_COOKIE])
+    assert ROUND_TRIP_COOKIE not in h.browser.cookies
+    (raised,) = repo.raised
+    assert STORE_EMAIL in str(raised) and STORE_SUB in str(raised), "the error carries both"
+    captured = capsys.readouterr()
+    places = {
+        "response": "\n".join([response.text, *response.headers.get_list("set-cookie")]),
+        "log": _logged(caplog.records),
+        "stdout or stderr": captured.out + captured.err,
+    }
+    for place, text in places.items():
+        for value in (STORE_EMAIL, STORE_SUB):
+            assert value not in text, f"{value} reached the {place}"
 
 
 # --- POST /auth/logout -------------------------------------------------------------------
