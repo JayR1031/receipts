@@ -479,7 +479,9 @@ REJECTED_ID_TOKENS: dict[str, TokenMaker] = {
         {"alg": "RS256"}, CLAIMS, google, algorithms=["RS256"]
     ),
     "kid-not-a-string": lambda google, impostor: _unsigned({"alg": "RS256", "kid": 5}),
-    # joserfc 1.8.0 raises a bare TypeError for these three before it checks the signature.
+    # joserfc 1.8.0 raises a bare TypeError for each of the next five before any signature
+    # check: `jwt.decode` for the two `crit` shapes and a list header, and `jws.extract_compact`
+    # already for a list or a string header that contains "b64" (it indexes `header["b64"]`).
     "crit-not-a-list": lambda google, impostor: _unsigned(
         {"alg": "RS256", "kid": KID, "crit": True}
     ),
@@ -487,6 +489,8 @@ REJECTED_ID_TOKENS: dict[str, TokenMaker] = {
         {"alg": "RS256", "kid": KID, "crit": [1]}
     ),
     "header-is-a-list": lambda google, impostor: _unsigned(["alg", "RS256"]),
+    "header-list-naming-b64": lambda google, impostor: _unsigned(["alg", "b64"]),
+    "header-text-naming-alg-and-b64": lambda google, impostor: _unsigned("alg b64"),
     "header-not-json": lambda google, impostor: "bm90LWpzb24." + _encode(CLAIMS) + ".AAAA",
     "one-word": lambda google, impostor: "garbage",
     "three-words": lambda google, impostor: "a.b.c",
@@ -513,6 +517,60 @@ async def test_an_id_token_that_fails_verification_is_refused(
     google.token = _token_reply(REJECTED_ID_TOKENS[case](google_key, impostor_key))
 
     assert (await _failure(provider)).check == "id_token"
+
+
+async def test_only_rs256_is_accepted_even_from_a_key_set_without_alg(
+    provider: GoogleIdentityProvider, google: FakeGoogle, google_key: RSAKey
+) -> None:
+    """Google's keys carry `alg: RS256`, and joserfc then refuses another algorithm by itself.
+    Without that parameter only the provider's pin stands between an RS512 token and its key."""
+    bare = _without_alg(google_key)
+    google.jwks = _jwks_reply(bare)
+    google.token = _token_reply(_id_token(bare, alg="RS512"))
+
+    assert (await _failure(provider)).check == "id_token"
+
+    google.token = _token_reply(_id_token(bare))
+    assert (await _exchange(provider)).sub == "fake-sub-0001"
+
+
+async def test_a_symmetric_key_in_the_key_set_cannot_verify_an_hs256_token(
+    provider: GoogleIdentityProvider, google: FakeGoogle, google_key: RSAKey
+) -> None:
+    """Two guards stand here: the RS256 pin, and a key set reduced to RSA keys. Either one
+    alone refuses this token."""
+    shared = "synthetic-shared-secret-not-real-0002"
+    raw = base64.urlsafe_b64encode(shared.encode()).rstrip(b"=").decode()
+    symmetric = {"kty": "oct", "kid": ROTATED_KID, "k": raw}
+    google.jwks = _json({"keys": [google_key.as_dict(private=False), symmetric]})
+    google.token = _token_reply(
+        jwt.encode(
+            {"alg": "HS256", "kid": ROTATED_KID},
+            CLAIMS,
+            OctKey.import_key(shared),
+            algorithms=["HS256"],
+        )
+    )
+
+    assert (await _failure(provider)).check == "id_token"
+
+
+async def test_a_non_2xx_token_reply_is_refused_even_with_an_id_token(
+    provider: GoogleIdentityProvider, google: FakeGoogle, google_key: RSAKey
+) -> None:
+    usable = _token_reply(_id_token(google_key))
+    google.token = Reply(500, usable.body)
+
+    assert (await _failure(provider)).check == "token_exchange"
+    assert google.to(JWKS_URL) == []
+
+
+async def test_a_non_2xx_key_set_reply_is_refused_even_with_usable_keys(
+    provider: GoogleIdentityProvider, google: FakeGoogle, google_key: RSAKey
+) -> None:
+    google.jwks = Reply(404, _jwks_reply(google_key).body)
+
+    assert (await _failure(provider)).check == "jwks"
 
 
 REFUSED_TOKEN_RESPONSES: dict[str, Reply | httpx.HTTPError] = {
