@@ -17,10 +17,11 @@ checked against the web page or search result it came from.
 </div>
 
 > [!IMPORTANT]
-> **Status on `main` (2026-11-15):** the deployed app runs live comparisons.
+> **Status on `main` (2026-11-16):** the deployed app runs live comparisons.
 > - **How a run works:** Claude agents search and fetch with Keenable, and every claim goes through the verifier. Runs are stored in Neon. A claim that fails gets up to two Mellea rewrites; those were measured locally before deploy, not yet on the deployed app (see the Mel vs Warp demo below).
-> - **The passcode:** starting a run needs the demo passcode (the Passcode field in the UI, `X-Demo-Passcode` in the API). Reading runs does not.
-> - **Without the live settings** (`ANTHROPIC_API_KEY`, `KEENABLE_API_KEY` and `DATABASE_URL`), the app serves one built-in demo run of invented companies instead (`src/receipts/api/wiring.py`). The UI replays it with no setup at all. `POST /api/runs` still checks the passcode first (401 without one) and then the Keenable key (503 without it).
+> - **Starting a run:** sign-in is optional (issue #41, ADR-0008). Signed out, a run needs the demo passcode (the Passcode field in the UI, `X-Demo-Passcode` in the API), and all signed-out runs together are capped at 20 per UTC day. Signed in with Google, a run needs no passcode, up to 5 per person per UTC day. Every API start is a signed-out run. Reading a battlecard by its id needs neither.
+> - **Who can sign in:** only the repository owner, while the Google OAuth app is in Testing mode. Everyone else uses the passcode.
+> - **Without the live settings** (`ANTHROPIC_API_KEY`, `KEENABLE_API_KEY` and `DATABASE_URL`), the app serves one built-in demo run of invented companies instead (`src/receipts/api/wiring.py`). The UI replays it with no setup at all, and offers no sign-in. `POST /api/runs` still checks the passcode first (401 without one) and then the Keenable key (503 without it).
 >
 > The live app runs on Render's free tier, which sleeps after 15 minutes idle. The first load can
 > take about a minute (Render's free-tier docs, cited in ADR-0005).
@@ -51,13 +52,13 @@ failed, the reason.
 
 ## What you see in 30 seconds
 
-1. Type a **subject** (you), a **rival** and an optional **category**, plus the demo passcode.
+1. Type a **subject** (you), a **rival** and an optional **category**. Signed out, add the demo passcode; signed in with Google, the passcode field is hidden and the line under the header shows your count, such as `0 of 5 runs used today (UTC)`.
 2. Two specialists run in parallel, one per domain pack: `pricing` and `positioning_seo`. The built-in demo replay, used when the live settings are not all set, covers the pricing pack only.
 3. The progress log names each step: `started`, `search`, `fetch`, `claim`, `verified`,
    `dropped`, `error`, `done`.
 4. The battlecard groups claims by domain. Each claim is marked `[verified]` or `[unverified]`
    with its note and its receipt (the quote and a link to the page, or the search query and rank).
-5. The History tab lists past runs, newest first. Click one to reopen its battlecard.
+5. The History tab lists past runs, newest first: signed in, your own runs; signed out, the runs that belong to no one. Click one to reopen its battlecard.
 
 <details>
 <summary>The progress log, exactly as the UI prints it (built-in demo replay, invented companies)</summary>
@@ -137,7 +138,7 @@ sequenceDiagram
     participant V as Verifier
     participant DB as Neon runs table
 
-    U->>UI: subject, rival, category, passcode
+    U->>UI: subject, rival, category, and the passcode or a sign-in session
     UI->>RS: start(RunRequest)
     RS->>DB: save_run, status running
     RS-->>UI: run_id
@@ -190,8 +191,13 @@ sequenceDiagram
 - **Counting.** `total_count` counts `claim` events and `verified_count` counts `verified` events.
   Every claim that does not verify is emitted as `dropped` and stays on the battlecard as
   `[unverified]`, with its note.
-- **Storage.** One `runs` table: `id, created_at, subject, rival, category, status, battlecard`
-  (JSON), `events` (JSON) (`src/receipts/db/schema.py`).
+- **Storage.** A `runs` table: `id, created_at, subject, rival, category, status, battlecard`
+  (JSON), `events` (JSON), `user_id` (NULL for a signed-out run); and a `users` table for people
+  who signed in with Google: `id, sub, email, created_at` (`src/receipts/db/schema.py`).
+- **Sign-in.** Optional Google sign-in (OpenID Connect, authorization code with PKCE) at `/auth/*`,
+  in the same process. The ID token's RS256 signature is checked against Google's published keys
+  with `joserfc`, then its issuer, audience, expiry and nonce. The session is a signed cookie that
+  holds our user id and an expiry, 7 days (`src/receipts/auth/`, ADR-0008).
 - **Wiring.** With `ANTHROPIC_API_KEY`, `KEENABLE_API_KEY` and `DATABASE_URL` all set, the API
   and UI run the live service: Claude, Keenable, Neon and Mellea repairs (`build_live_service`
   in `src/receipts/api/wiring.py`). Otherwise they serve the built-in demo replay.
@@ -366,8 +372,11 @@ be one of the four `Domain` values in the contracts (`pricing`, `positioning_seo
 
 ## API quickstart
 
-The passcode header is `X-Demo-Passcode` (`PASSCODE_HEADER` in `src/receipts/api/routes.py`).
-Reading runs needs no passcode; starting one does.
+Every `POST /api/runs` is a signed-out run: it needs the passcode header `X-Demo-Passcode`
+(`PASSCODE_HEADER` in `src/receipts/api/routes.py`) and counts against the signed-out cap (20 per
+UTC day by default), even with a session cookie. Reading needs no passcode. `GET /api/runs`
+without a session cookie lists the runs that belong to no one. Sign-in routes are in
+[`docs/api.md`](docs/api.md).
 
 ```bash
 BASE=https://receipts-h745.onrender.com
@@ -381,15 +390,16 @@ curl -sS -X POST "$BASE/api/runs" \
 # One run's battlecard (404 until a battlecard is stored)
 curl -sS "$BASE/api/runs/$RUN_ID"
 
-# History, newest first
+# History, newest first (no session cookie: the runs that belong to no one)
 curl -sS "$BASE/api/runs"
 ```
 
 | Call | Success | Errors |
 |---|---|---|
-| `POST /api/runs` | `202 {"run_id": "..."}` | `401` passcode missing or wrong, `503` `KEENABLE_API_KEY is not set`, `422` bad body |
+| `POST /api/runs` | `202 {"run_id": "..."}` | `401` passcode missing or wrong, `429` `20 of 20 signed-out runs used today (UTC); the limit resets at 00:00 UTC`, `503` `KEENABLE_API_KEY is not set`, `422` bad body |
 | `GET /api/runs/{run_id}` | `200` `Battlecard` | `404` `run <id> not found` |
-| `GET /api/runs` | `200` list of `RunSummary` | none |
+| `GET /api/runs` | `200` list of `RunSummary`: with a valid session cookie, that person's runs; without one, the runs with no user | none |
+| `GET /auth/me` | `200 {"email": "..."}` for a valid session | `401` `not signed in` |
 | `GET /healthz` | `200 {"status": "ok", "sha": "...", "version": "..."}` | none |
 
 <details>
@@ -454,6 +464,9 @@ uv sync
 uv run uvicorn receipts.api.app:app --reload   # http://127.0.0.1:8000 redirects to /ui
 ```
 
+To try sign-in locally, open `http://localhost:8000` instead: the registered local callback is on
+`localhost`, and the sign-in cookies are host-only (`docs/runbooks/render.md`, "Sign in locally").
+
 Settings are read from the environment on first use, never at import, so the app boots with none
 of them set (`src/receipts/settings.py`). Keep values in your shell environment, never in a
 committed file.
@@ -463,8 +476,18 @@ committed file.
 | `ANTHROPIC_API_KEY` | Claude, for the specialists |
 | `KEENABLE_API_KEY` | Web search and fetch; `POST /api/runs` returns 503 without it |
 | `DATABASE_URL` | Postgres (Neon); `postgresql://` is rewritten to the psycopg 3 driver |
-| `DEMO_PASSCODE` | The passcode `POST /api/runs` checks; with it unset, every start gets 401 |
+| `DEMO_PASSCODE` | The passcode signed-out visitors and `POST /api/runs` need; with it unset, every API start gets 401 |
 | `MAX_CONCURRENT_SPECIALISTS` | How many specialists run at once (default 4) |
+| `GOOGLE_CLIENT_ID` | The Google OAuth client's id; sign-in needs it. Not a secret: it is in the sign-in URL |
+| `GOOGLE_CLIENT_SECRET` | The Google OAuth client's secret, sent only to Google's token endpoint; sign-in needs it |
+| `SESSION_SECRET` | Signs the session and sign-in cookies; sign-in needs it. Locally, a throwaway: `export SESSION_SECRET="$(openssl rand -hex 32)"` |
+| `RUNS_PER_USER_PER_DAY` | Runs a signed-in person may start per UTC day (default 5) |
+| `SIGNED_OUT_RUNS_PER_DAY` | Runs all signed-out visitors and API calls together may start per UTC day (default 20) |
+
+Sign-in needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` and `DATABASE_URL`; with
+any missing, `/auth/login` answers 503 naming it, never its value. The UI shows "Sign in with
+Google" only when those and the three live settings are all set. While the Google OAuth app is in
+Testing mode, only the repository owner can sign in.
 
 ## Tests and gates
 
