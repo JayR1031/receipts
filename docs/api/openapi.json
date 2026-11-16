@@ -643,7 +643,7 @@
                 }
               }
             },
-            "description": "Sign-in is not configured."
+            "description": "Sign-in is not configured, or the users store failed (`user_store`)."
           }
         },
         "summary": "Callback",
