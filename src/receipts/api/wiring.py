@@ -48,12 +48,17 @@ settings per call, never in `create_app()`.
   apply and the run is never claimed (on Postgres the claim would fail on the foreign key after
   the run had started).
 - `history`: that user's runs, or the runs with no user; `account`: the email, today's count and
-  the limit that applies. On the demo nothing is stored, so History is the demo's list and the
-  account line is zeros with sign-in hidden.
+  the limit that applies. On the demo (local, or half-configured) nothing is stored, so History
+  is the demo's list and the account line is signed out, `0 of SIGNED_OUT_RUNS_PER_DAY`, with
+  sign-in hidden.
 - `POST /api/runs` and `GET /api/runs` use the same rules (`runs_today`, `history_for`).
 
-Shared pool: when the live repo is built, `app.state.user_repo` becomes a `SqlUserRepo` on the
-same engine, so sign-in does not open a second pool (an existing one is kept).
+Pools: when the live repo is built first, `app.state.user_repo` becomes a `SqlUserRepo` on the
+same engine, so sign-in shares the run repo's pool. When a sign-in reaches the users store before
+the live service exists (`/auth/callback` or `/auth/me` is the first request to need it),
+`receipts.auth.routes.get_user_repo` builds a `SqlUserRepo` on its own engine, and building the
+live repo later keeps that one: the process then holds two pools, one for users and one for
+runs, until it restarts.
 
 Identity provider: built per process, not per request. `receipts.auth.routes` builds the real
 Google provider from `sign_in_config(settings)` on the first callback that needs it and caches it
@@ -452,7 +457,17 @@ async def _decide(
     )
 
 
-_DEMO_ACCOUNT = AccountStatus(email=None, runs_used=0, runs_limit=0, sign_in_available=False)
+def _demo_account(settings: Settings) -> AccountStatus:
+    """The account line with no live repo (local demo or half-configured): nothing is stored, so
+    nothing is counted, and with no users table every visitor reads as signed out. The limit is
+    the signed-out cap, never 0 (Rule Zero: `0 of 0` reads as none left while runs still start).
+    Sign-in stays hidden: a session would read as signed out here anyway."""
+    return AccountStatus(
+        email=None,
+        runs_used=0,
+        runs_limit=settings.signed_out_runs_per_day,
+        sign_in_available=False,
+    )
 
 
 class LiveGate:
@@ -499,9 +514,9 @@ class LiveGate:
 
     async def account(self, user: SessionUser | None) -> AccountStatus:
         repo = await self._service.live_repo()
-        if repo is None:
-            return _DEMO_ACCOUNT
         settings = get_settings()
+        if repo is None:
+            return _demo_account(settings)
         found = await self._row(repo, user)
         now = self._clock()()
         available = not missing_sign_in_settings(settings)
