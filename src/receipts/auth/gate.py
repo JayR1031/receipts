@@ -31,8 +31,9 @@ class Gate(Protocol):
 
         Signed in: no passcode, counted against that user's daily limit. Signed out: the
         passcode must match, counted against the signed-out daily cap. A refusal raises
-        `PermissionError` whose message is the `StartDecision.reason`; a missing key raises
-        `MissingSettingError`, as today's `make_starter` does. No run starts either way.
+        `PermissionError` whose message is the `StartDecision.reason`. A missing required
+        setting (the Keenable key) also raises `PermissionError`, its message naming the
+        variable and never its value. No run starts either way.
         """
         ...
 
