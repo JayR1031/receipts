@@ -141,7 +141,7 @@
         "type": "object"
       },
       "ErrorDetail": {
-        "description": "FastAPI's error envelope, named so the OpenAPI document shows it on 401/404/503.",
+        "description": "FastAPI's error envelope, named so the OpenAPI document shows it on 401/404/429/503.",
         "properties": {
           "detail": {
             "title": "Detail",
@@ -188,6 +188,21 @@
           "version"
         ],
         "title": "Health",
+        "type": "object"
+      },
+      "Me": {
+        "additionalProperties": false,
+        "description": "`GET /auth/me`: the signed-in person's email, the only profile value we keep besides\nGoogle's subject id.",
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "Me",
         "type": "object"
       },
       "QuoteReceipt": {
@@ -396,7 +411,7 @@
   "paths": {
     "/api/runs": {
       "get": {
-        "description": "History: newest first, whatever order the service hands back.",
+        "description": "History, newest first: with a valid session cookie, the signed-in user's runs; without\none, the runs that belong to no user (started with the passcode).",
         "operationId": "list_runs_api_runs_get",
         "responses": {
           "200": {
@@ -480,6 +495,16 @@
             },
             "description": "Validation Error"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Today's signed-out runs are used up."
+          },
           "503": {
             "content": {
               "application/json": {
@@ -546,6 +571,153 @@
         "summary": "Get Run",
         "tags": [
           "runs"
+        ]
+      }
+    },
+    "/auth/callback": {
+      "get": {
+        "operationId": "callback_auth_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "A sign-in check failed; names it."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Sign-in is not configured, or the users store failed (`user_store`)."
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/login": {
+      "get": {
+        "operationId": "login_auth_login_get",
+        "responses": {
+          "302": {
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Sign-in is not configured."
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "logout_auth_logout_post",
+        "responses": {
+          "303": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "operationId": "me_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Me",
+        "tags": [
+          "auth"
         ]
       }
     },

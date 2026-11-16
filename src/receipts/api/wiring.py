@@ -28,6 +28,44 @@ run the API would refuse. `POST /api/runs` is L4's and always needs a configured
 The verifier is L2's `receipts.verify.verify_claim` (pure; merged in PR #25). Claims it would not
 verify first get up to two Mellea repairs (`live_repair_factory`, GitHub issue #39, ADR-0007);
 the verifier still judges every claim.
+
+Sign-in (issue #41, ADR-0008). `create_app()` stores a `LiveGate` on `app.state.gate`; the UI
+starts runs, lists History and shows the account line through it. Like the proxy, it reads
+settings per call, never in `create_app()`.
+- `identify` is `current_user` with the Gate's own clock (`app.state.clock`, else UTC now). It
+  never calls `get_clock(request)`: the UI hands over Gradio's request, whose `app` is Gradio's
+  sub-app, not this one.
+- `start`: local demo mode (no passcode configured and the proxy on the demo) replays the demo as
+  `make_starter` does, uncounted and unclaimed. Otherwise the start rule (`may_start`) decides
+  from today's (UTC) count of the visitor's own runs: the user's when signed in, the runs with no
+  user when signed out (passcode compared in constant time); then the Keenable key, refused as
+  `PermissionError("KEENABLE_API_KEY is not set")` (the name only), so the UI needs to recognise
+  only `PermissionError`; then the run starts on the same proxy the UI follows for events, and a
+  signed-in user's run is claimed right after (the brief's accepted sub-second unclaimed window).
+  A session is signed in only while its `users` row exists: `identify` reads no database, so
+  `start` reads the row first, as `account` does. A row the owner deleted (the cookie lives 7
+  days), or no live repo to read it from, means signed out: the passcode and the signed-out cap
+  apply and the run is never claimed (on Postgres the claim would fail on the foreign key after
+  the run had started).
+- `history`: that user's runs, or the runs with no user; `account`: the email, today's count and
+  the limit that applies. On the demo (local, or half-configured) nothing is stored, so History
+  is the demo's list and the account line is signed out, `0 of SIGNED_OUT_RUNS_PER_DAY`, with
+  sign-in hidden.
+- `POST /api/runs` and `GET /api/runs` use the same rules (`runs_today`, `history_for`).
+
+Pools: when the live repo is built first, `app.state.user_repo` becomes a `SqlUserRepo` on the
+same engine, so sign-in shares the run repo's pool. When a sign-in reaches the users store before
+the live service exists (`/auth/callback` or `/auth/me` is the first request to need it),
+`receipts.auth.routes.get_user_repo` builds a `SqlUserRepo` on its own engine, and building the
+live repo later keeps that one: the process then holds two pools, one for users and one for
+runs, until it restarts.
+
+Identity provider: built per process, not per request. `receipts.auth.routes` builds the real
+Google provider from `sign_in_config(settings)` on the first callback that needs it and caches it
+on `app.state.identity_provider`; nothing here or in `create_app()` builds it. Its key cache never
+expires: per request would cost one extra GET to Google's key set per sign-in; per process keeps
+a key Google has withdrawn until a token names an unknown `kid` and forces a refetch. The latter
+is accepted for this app (ADR-0008).
 """
 
 from __future__ import annotations
@@ -36,11 +74,16 @@ import asyncio
 import logging
 import secrets
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from typing import Literal
+from datetime import UTC, datetime
+from typing import Literal, cast
 
 from fastapi import FastAPI
 from pydantic import SecretStr
+from starlette.requests import Request
 
+from receipts.auth.limits import may_start
+from receipts.auth.models import AccountStatus, SessionUser, StartDecision, User
+from receipts.auth.routes import Clock, current_user, missing_sign_in_settings
 from receipts.contracts import (
     Battlecard,
     FetchClient,
@@ -53,7 +96,7 @@ from receipts.contracts import (
     SearchClient,
     StartedEvent,
 )
-from receipts.db import SqlRunRepo, create_schema
+from receipts.db import SqlRunRepo, SqlUserRepo, create_schema
 from receipts.fakes import FakeRunService
 from receipts.harness import (
     Coordinator,
@@ -70,7 +113,12 @@ from receipts.harness.live import (
     live_model_factory,
     live_repair_factory,
 )
-from receipts.settings import Settings, get_settings, require_keenable_key
+from receipts.settings import (
+    MissingSettingError,
+    Settings,
+    get_settings,
+    require_keenable_key,
+)
 from receipts.ui.demo import demo_service as ui_demo_service
 from receipts.verify import verify_claim
 
@@ -78,16 +126,21 @@ __all__ = [
     "MODE_HEADER",
     "DemoRunService",
     "LazyRunService",
+    "LiveGate",
     "Mode",
     "Starter",
     "active_mode",
     "build_live_service",
     "demo_fallback",
+    "history_for",
+    "live_repo_of",
     "live_settings_present",
     "make_starter",
     "missing_live_settings",
     "passcode_configured",
     "resolve_run_service",
+    "runs_today",
+    "start_of_utc_day",
 ]
 
 logger = logging.getLogger(__name__)
@@ -226,7 +279,18 @@ def resolve_run_service(app: FastAPI, *, fallback: RunService | None = None) -> 
     app.state.live_run_service = service
     app.state.live_repo = repo  # kept here so schema setup never reads a private attribute
     app.state.schema_ready = False
+    _user_repo_for(app, repo)  # sign-in shares this pool
     return service
+
+
+def _user_repo_for(app: FastAPI, repo: SqlRunRepo) -> SqlUserRepo:
+    """`app.state.user_repo`, or a `SqlUserRepo` on `repo`'s engine, cached there."""
+    configured: object = getattr(app.state, "user_repo", None)
+    if isinstance(configured, SqlUserRepo):
+        return configured
+    users = SqlUserRepo(engine=repo.engine)
+    app.state.user_repo = users
+    return users
 
 
 def active_mode(app: FastAPI) -> Mode:
@@ -279,18 +343,63 @@ class LazyRunService:
     async def list(self) -> list[RunSummary]:
         return await (await self._service()).list()
 
+    async def live_repo(self) -> SqlRunRepo | None:
+        """The live service's `SqlRunRepo`, its schema created; `None` on the fallback."""
+        service = await self._service()
+        repo: object = getattr(self._app.state, "live_repo", None)
+        if isinstance(service, InProcessRunService) and isinstance(repo, SqlRunRepo):
+            return repo
+        return None
+
+
+async def live_repo_of(service: RunService) -> SqlRunRepo | None:
+    """The live repo behind a `LazyRunService`; `None` for any other service (a fake, the demo)."""
+    return await service.live_repo() if isinstance(service, LazyRunService) else None
+
+
+def start_of_utc_day(now: datetime) -> datetime:
+    """00:00 UTC on `now`'s UTC date, where every daily limit's window starts."""
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    return now.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+async def _count_today(repo: SqlRunRepo | None, user_id: str | None, now: datetime) -> int:
+    if repo is None:
+        return 0  # the demo stores nothing, so nothing counts
+    return await repo.count_runs_since(user_id, start_of_utc_day(now))
+
+
+async def runs_today(service: RunService, user_id: str | None, now: datetime) -> int:
+    """Today's (UTC) runs of that user, or with `None` the runs with no user; 0 on the demo."""
+    return await _count_today(await live_repo_of(service), user_id, now)
+
+
+async def history_for(service: RunService, user: SessionUser | None) -> list[RunSummary]:
+    """History: the user's runs, or the runs with no user (newest first); on the demo or any
+    service without a live repo, `service.list()` as before issue #41."""
+    repo = await live_repo_of(service)
+    if repo is None:
+        return await service.list()
+    return await repo.list_runs_for(user.user_id if user is not None else None)
+
 
 def _serves_demo(service: RunService) -> bool:
     resolved = service.resolve() if isinstance(service, LazyRunService) else service
     return isinstance(resolved, DemoRunService)
 
 
-def _check_passcode(presented: str, settings: Settings) -> None:
-    """`PermissionError` unless a non-blank passcode is configured and matches (constant time)."""
+def _passcode_ok(presented: str, settings: Settings) -> bool:
+    """A non-blank passcode is configured and `presented` matches it (constant time)."""
     expected = settings.demo_passcode
     if expected is None or not expected.get_secret_value().strip():
-        raise PermissionError("a valid passcode is required")
-    if not secrets.compare_digest(presented.encode(), expected.get_secret_value().encode()):
+        return False
+    return secrets.compare_digest(presented.encode(), expected.get_secret_value().encode())
+
+
+def _check_passcode(presented: str, settings: Settings) -> None:
+    """`PermissionError` unless a non-blank passcode is configured and matches (constant time)."""
+    if not _passcode_ok(presented, settings):
         raise PermissionError("a valid passcode is required")
 
 
@@ -312,3 +421,113 @@ def make_starter(service: RunService) -> Starter:
         return await service.start(request)
 
     return start
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _require_key(settings: Settings) -> None:
+    """`require_keenable_key`, refused as `PermissionError` naming the variable, never a value."""
+    try:
+        require_keenable_key(settings)
+    except MissingSettingError as exc:
+        raise PermissionError(f"{exc.name} is not set") from exc
+
+
+async def _decide(
+    repo: SqlRunRepo | None,
+    settings: Settings,
+    passcode: str,
+    user: SessionUser | None,
+    now: datetime,
+) -> StartDecision:
+    """The start rule with today's counts; only the visitor's own count is read, the other is 0
+    (`may_start` reads one per branch). Keywords, because the two counts are adjacent ints."""
+    signed_in = user is not None
+    user_runs = await _count_today(repo, user.user_id, now) if signed_in else 0
+    signed_out_runs = 0 if signed_in else await _count_today(repo, None, now)
+    return may_start(
+        user=user,
+        passcode_ok=_passcode_ok(passcode, settings),
+        user_runs_today=user_runs,
+        signed_out_runs_today=signed_out_runs,
+        per_user_limit=settings.runs_per_user_per_day,
+        signed_out_cap=settings.signed_out_runs_per_day,
+    )
+
+
+def _demo_account(settings: Settings) -> AccountStatus:
+    """The account line with no live repo (local demo or half-configured): nothing is stored, so
+    nothing is counted, and with no users table every visitor reads as signed out. The limit is
+    the signed-out cap, never 0 (Rule Zero: `0 of 0` reads as none left while runs still start).
+    Sign-in stays hidden: a session would read as signed out here anyway."""
+    return AccountStatus(
+        email=None,
+        runs_used=0,
+        runs_limit=settings.signed_out_runs_per_day,
+        sign_in_available=False,
+    )
+
+
+class LiveGate:
+    """The live `receipts.auth.gate.Gate` (module docstring, "Sign-in"). `service` is the proxy
+    `create_app()` stores on `app.state.run_service`, so a run it starts is the one the UI follows;
+    `app` gives the live repo, the user repo and the clock, all read at call time."""
+
+    def __init__(self, service: LazyRunService, app: FastAPI) -> None:
+        self._service = service
+        self._app = app
+
+    def _clock(self) -> Clock:
+        configured: object = getattr(self._app.state, "clock", None)
+        return cast(Clock, configured) if callable(configured) else _utc_now
+
+    def identify(self, request: Request) -> SessionUser | None:
+        return current_user(request, get_settings(), self._clock())
+
+    async def _row(self, repo: SqlRunRepo | None, user: SessionUser | None) -> User | None:
+        """The session's `users` row, or `None`: signed out, no live repo (so no users table to
+        read), or a row the owner deleted while the cookie is still valid. `identify` reads no
+        database, so `start` and `account` both read the row here."""
+        if user is None or repo is None:
+            return None
+        return await _user_repo_for(self._app, repo).get(user.user_id)
+
+    async def start(self, request: RunRequest, passcode: str, user: SessionUser | None) -> RunId:
+        settings = get_settings()
+        if not passcode_configured(settings) and _serves_demo(self._service):
+            return await self._service.start(request)  # local demo: no passcode, not counted
+        repo = await self._service.live_repo()
+        visitor = user if await self._row(repo, user) is not None else None
+        decision = await _decide(repo, settings, passcode, visitor, self._clock()())
+        if not decision.allowed:
+            raise PermissionError(decision.reason)
+        _require_key(settings)  # after the start rule: a stranger learns nothing about the key
+        run_id = await self._service.start(request)
+        if visitor is not None and repo is not None:
+            await repo.claim_run(run_id, visitor.user_id)
+        return run_id
+
+    async def history(self, user: SessionUser | None) -> list[RunSummary]:
+        return await history_for(self._service, user)
+
+    async def account(self, user: SessionUser | None) -> AccountStatus:
+        repo = await self._service.live_repo()
+        settings = get_settings()
+        if repo is None:
+            return _demo_account(settings)
+        found = await self._row(repo, user)
+        now = self._clock()()
+        available = not missing_sign_in_settings(settings)
+        if found is None:  # signed out, or a session whose user row is gone
+            used = await _count_today(repo, None, now)
+            limit = settings.signed_out_runs_per_day
+            return AccountStatus(
+                email=None, runs_used=used, runs_limit=limit, sign_in_available=available
+            )
+        used = await _count_today(repo, found.id, now)
+        limit = settings.runs_per_user_per_day
+        return AccountStatus(
+            email=found.email, runs_used=used, runs_limit=limit, sign_in_available=available
+        )

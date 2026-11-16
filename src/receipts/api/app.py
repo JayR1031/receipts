@@ -10,6 +10,10 @@ on the first call that finds the three settings present (see `receipts.api.wirin
 
 `/healthz` reports the active mode, `live` or `demo`, in the `X-Receipts-Mode` header; the JSON
 body is unchanged (L4 owns the `Health` model and the OpenAPI document).
+
+Issue #41: `create_app()` includes the `/auth/*` router and stores the live `Gate` (`LiveGate`) on
+`app.state.gate` before `mount_ui(app)`, beside `run_starter` (which the UI uses when no Gate is
+set). Like the proxy, the Gate reads settings per call; nothing here reads one.
 """
 
 from __future__ import annotations
@@ -22,7 +26,8 @@ from fastapi.responses import RedirectResponse
 from receipts import __version__
 from receipts.api.models import Health
 from receipts.api.routes import router as runs_router
-from receipts.api.wiring import MODE_HEADER, LazyRunService, active_mode, make_starter
+from receipts.api.wiring import MODE_HEADER, LazyRunService, LiveGate, active_mode, make_starter
+from receipts.auth.routes import router as auth_router
 from receipts.ui.app import UI_PATH, mount_ui
 
 router = APIRouter()
@@ -59,9 +64,11 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Receipts", version=__version__)
     app.include_router(router)
     app.include_router(runs_router)
+    app.include_router(auth_router)
     service = LazyRunService(app)
     app.state.run_service = service
     app.state.run_starter = make_starter(service)
+    app.state.gate = LiveGate(service, app)
     mount_ui(app)
     return app
 

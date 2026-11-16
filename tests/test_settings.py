@@ -23,6 +23,11 @@ NAMES = (
     "DATABASE_URL",
     "DEMO_PASSCODE",
     "MAX_CONCURRENT_SPECIALISTS",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "SESSION_SECRET",
+    "RUNS_PER_USER_PER_DAY",
+    "SIGNED_OUT_RUNS_PER_DAY",
 )
 
 
@@ -40,6 +45,11 @@ def test_settings_construct_with_nothing_set(empty_env: None) -> None:
     assert settings.database_url is None
     assert settings.demo_passcode is None
     assert settings.max_concurrent_specialists == 4
+    assert settings.google_client_id is None
+    assert settings.google_client_secret is None
+    assert settings.session_secret is None
+    assert settings.runs_per_user_per_day == 5
+    assert settings.signed_out_runs_per_day == 20
 
 
 def test_get_settings_is_lazy_and_cached(empty_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -74,9 +84,15 @@ def test_require_keenable_key_returns_the_secret(empty_env: None) -> None:
 
 
 def test_create_app_boots_with_an_empty_environment() -> None:
-    """Mirrors the api-image CI check: the container starts with no secrets at all."""
+    """Mirrors the api-image CI check: the container starts with no secrets at all.
+
+    Every setting is optional, so reading them in an empty environment would not fail; the
+    empty `get_settings` cache is what shows that neither import nor `create_app()` read one."""
     root = Path(__file__).resolve().parents[1]
-    code = "from receipts.api.app import create_app; create_app()"
+    code = (
+        "from receipts.api.app import create_app; from receipts.settings import get_settings; "
+        "create_app(); assert get_settings.cache_info().currsize == 0, 'settings were read'"
+    )
     env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"]}
     proc = subprocess.run(
         ["uv", "run", "--no-sync", "python", "-c", code],

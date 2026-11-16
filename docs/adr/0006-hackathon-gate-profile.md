@@ -45,7 +45,7 @@ Each lane touches only its globs; tests live in `tests/` (the only folder pytest
 | L5 Gradio UI | #17 | `src/receipts/ui/**`, `tests/test_ui*.py` |
 | L6 landing page | #18 | its own repository; in here only ADR-0005's license bullet |
 
-Frozen for all lanes: `src/receipts/contracts.py`, `src/receipts/settings.py`, `src/receipts/fakes/**`, `tests/conftest.py`, `pyproject.toml`, `uv.lock`. A lane that needs a change stops and asks.
+Frozen for all lanes: `src/receipts/contracts.py`, `src/receipts/settings.py`, `src/receipts/fakes/**`, `tests/conftest.py`, `pyproject.toml`, `uv.lock`. A lane that needs a change stops and asks. Two lifts since, each for one issue only and recorded in its own ADR: `pyproject.toml` and `uv.lock` for issue #39 (Mellea, ADR-0007), and `pyproject.toml`, `uv.lock` and `src/receipts/settings.py` for issue #41 (Google sign-in, ADR-0008). Everything else on this list is still frozen.
 
 ## Consequences
 
