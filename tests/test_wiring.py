@@ -21,6 +21,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import Engine, inspect
+from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 import receipts.api.wiring as wiring
@@ -51,6 +52,7 @@ from receipts.contracts import (
     StartedEvent,
 )
 from receipts.db import SqlRunRepo, SqlUserRepo, create_schema
+from receipts.db.schema import UserRow
 from receipts.fakes import FakeRunService
 from receipts.harness import Coordinator, InProcessRunService
 from receipts.harness.live import KeenableFetchClient, KeenableSearchClient
@@ -839,6 +841,75 @@ async def test_signed_out_with_the_right_passcode_starts_a_run_with_no_user(live
     assert [s.run_id for s in await live.runs.list_runs_for(None)] == [run_id]
 
 
+GHOST = "user-deleted-0001"  # a valid session whose `users` row the owner deleted (none inserted)
+
+
+@dataclass(frozen=True)
+class _Calls:
+    starts: list[RunRequest]
+    claims: list[tuple[RunId, str]]
+
+
+def _record_starts_and_claims(live: Live, monkeypatch: pytest.MonkeyPatch) -> _Calls:
+    """Wrap the live service's `start` and the repo's `claim_run`, recording each call."""
+    calls = _Calls(starts=[], claims=[])
+    real_start, real_claim = live.service.start, live.runs.claim_run
+
+    async def start(request: RunRequest) -> RunId:
+        calls.starts.append(request)
+        return await real_start(request)
+
+    async def claim_run(run_id: RunId, user_id: str) -> None:
+        calls.claims.append((run_id, user_id))
+        await real_claim(run_id, user_id)
+
+    monkeypatch.setattr(live.service, "start", start)
+    monkeypatch.setattr(live.runs, "claim_run", claim_run)
+    return calls
+
+
+async def test_a_session_whose_user_row_is_gone_is_signed_out_and_needs_the_passcode(
+    live: Live, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On Postgres the claim would fail on the foreign key after the run had started, so the
+    session must be signed out before the start rule: no passcode, no run, no claim."""
+    calls = _record_starts_and_claims(live, monkeypatch)
+    ghost = new_session(GHOST, now=T_NOW)
+    with pytest.raises(PermissionError, match=f"^{NO_PASSCODE}$"):
+        await live.gate.start(GATE_REQUEST, "", ghost)
+    assert (calls.starts, calls.claims) == ([], [])
+    assert await live.runs.list_runs() == []
+
+
+async def test_a_session_whose_user_row_is_gone_starts_an_unclaimed_signed_out_run(
+    live: Live, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _record_starts_and_claims(live, monkeypatch)
+    run_id = await live.gate.start(GATE_REQUEST, PASSCODE, new_session(GHOST, now=T_NOW))
+    await live.service.wait(run_id)
+    assert calls.claims == []
+    assert [s.run_id for s in await live.runs.list_runs_for(None)] == [run_id]
+    assert await live.runs.count_runs_since(None, DAY_START) == 1  # counted as signed out
+
+
+async def test_a_session_whose_user_row_is_gone_meets_the_signed_out_cap(live: Live) -> None:
+    await _seed(live.runs, 20, user_id=None)
+    with pytest.raises(PermissionError, match=CAP_20):
+        await live.gate.start(GATE_REQUEST, PASSCODE, new_session(GHOST, now=T_NOW))
+    assert len(await live.runs.list_runs()) == 20
+
+
+async def _insert_user(engine: Engine, user_id: str) -> None:
+    """A `users` row whose id is `user_id` (synthetic), for a test that fixes the id up front."""
+    await create_schema(engine)
+    with Session(engine) as session, session.begin():
+        session.add(
+            UserRow(
+                id=user_id, sub=f"fake-sub-{user_id}", email="slot@example.com", created_at=T_NOW
+            )
+        )
+
+
 class _CountsRepo(SqlRunRepo):
     """Different counts for a user and for no user, so a count in the wrong `may_start` slot, or
     the wrong owner counted, changes the decision. Records every count it is asked for."""
@@ -887,6 +958,8 @@ async def test_each_count_reaches_its_own_may_start_slot(
     app = create_app()
     repo = _CountsRepo(f"sqlite:///{tmp_path / 'slots.db'}", counts)
     service = _install_live(app, repo, sample_pack)
+    if signed_in:
+        await _insert_user(repo.engine, SLOT_USER)  # a signed-in user has a `users` row
     owner = SLOT_USER if signed_in else None
     user = (
         SessionUser(user_id=SLOT_USER, expires_at=T_NOW + timedelta(days=1)) if signed_in else None
@@ -1160,3 +1233,20 @@ async def test_half_configured_gate_replays_the_demo_with_the_passcode_uncounted
         assert getattr(app.state, name, None) is None, name
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1, [r.getMessage() for r in warnings]
+
+
+async def test_half_configured_a_session_is_signed_out_and_needs_the_passcode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No live repo means no `users` row can be read, so a session is signed out here, as the
+    account line shows it: the passcode is required, and the run it allows is claimed by no one."""
+    _configure_partial(monkeypatch)
+    _no_demo_delay(monkeypatch)
+    app = create_app()
+    session = SessionUser(user_id="user-half-0001", expires_at=T_NOW + timedelta(days=1))
+    with pytest.raises(PermissionError, match=f"^{NO_PASSCODE}$"):
+        await app.state.gate.start(USER_REQUEST, "", session)
+    assert await app.state.run_service.list() == []
+    run_id = await app.state.gate.start(USER_REQUEST, PASSCODE, session)
+    assert [s.run_id for s in await app.state.gate.history(None)] == [run_id]
+    assert getattr(app.state, "user_repo", None) is None
