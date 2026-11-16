@@ -58,7 +58,7 @@
 ### Attachments (README JPEG at `f3ebfef`, drafts PNG, v3 video)
 
 - **"Its metadata is stripped: no GPS, device or capture time" (posts:3; commit `bca0d21`).** Checked three ways:
-  - **`meta_scan.py` (exit 0), the JPEG (148,606 bytes):** only APP0 JFIF, DQT, DHT, SOF0 and SOS. It has no APP1 (no Exif or XMP), no APP2, no APP13 and no COM segment. There are 0 bytes after EOI. 0 of the 22 metadata byte strings occur (Exif, GPS, XMP, Apple, iPhone, `2026:11:14`, 8BIM, MPF and others).
+  - **`meta_scan.py` (exit 0), the JPEG (148,606 bytes):** only APP0 JFIF, DQT, DHT, SOF0 and SOS. It has no APP1 (no Exif or XMP), no APP2, no APP13 and no COM segment. There are 0 bytes after EOI. 0 of the 22 metadata byte strings occur (Exif, GPS, XMP, two device-make strings, the EXIF-format capture date, 8BIM, MPF and others).
   - **`meta_scan.py`, the PNG (1,187,770 bytes):** the chunks are IHDR, pHYs, cICP, cHRM, gAMA, 290 IDAT and IEND. There is no eXIf, tEXt, iTXt, zTXt or tIME. 1 of the 22 strings matches, "HDR", which is the IHDR chunk name.
   - **`sips -g all` (exit 0 on both) and `ffprobe -show_entries format_tags:stream_tags` (exit 0 on both):** no EXIF, GPS, device or time property.
   - **v3 video:** ffprobe tags show only the encoder (`Lavc62.28.101 libx264`) and the handler names. 0 location, make or model tags.
