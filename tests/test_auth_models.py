@@ -5,6 +5,7 @@ Synthetic identities only: `fake-sub-0001`, addresses at example.com.
 
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
@@ -109,7 +110,7 @@ def test_id_token_claims_reject_a_naive_exp() -> None:
 
 
 def test_gate_is_a_protocol_with_the_four_methods() -> None:
-    assert Protocol in Gate.__mro__
+    assert Protocol in inspect.getmro(Gate)
     public = {name for name in vars(Gate) if not name.startswith("_")}
     assert public == {"identify", "start", "history", "account"}
 
