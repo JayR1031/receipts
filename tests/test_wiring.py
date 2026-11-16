@@ -1,15 +1,17 @@
 """W2 wiring: fakes without keys, the real `InProcessRunService` when the three settings are
 present (stubbed factories, no network), and a UI starter that enforces the passcode and key.
+Issue #41: the live `Gate` (`LiveGate`) that `create_app()` stores on `app.state.gate`.
 
-All names and keys here are invented.
+All names, keys, identities and secrets here are invented (`fake-sub-...`, `...@example.com`).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterator
-from datetime import UTC, datetime
+from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import gradio as gr
@@ -17,8 +19,11 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine
+from pydantic import SecretStr
+from sqlalchemy import Engine, inspect
+from starlette.requests import Request
 
+import receipts.api.wiring as wiring
 from receipts.api.app import create_app, git_sha
 from receipts.api.wiring import (
     LazyRunService,
@@ -26,16 +31,28 @@ from receipts.api.wiring import (
     make_starter,
     resolve_run_service,
 )
+from receipts.auth.gate import Gate
+from receipts.auth.models import AccountStatus, SessionUser
+from receipts.auth.provider import GoogleIdentityProvider
+from receipts.auth.routes import SignInConfig, get_identity_provider
+from receipts.auth.session import SESSION_COOKIE, new_session, sign_session
 from receipts.contracts import (
     Battlecard,
+    DomainPack,
+    DoneEvent,
     FetchedPage,
+    RunEvent,
+    RunId,
     RunRepo,
     RunRequest,
     RunService,
+    RunSummary,
     SearchResult,
+    StartedEvent,
 )
+from receipts.db import SqlRunRepo, SqlUserRepo, create_schema
 from receipts.fakes import FakeRunService
-from receipts.harness import InProcessRunService
+from receipts.harness import Coordinator, InProcessRunService
 from receipts.harness.live import KeenableFetchClient, KeenableSearchClient
 from receipts.settings import MissingSettingError, Settings, get_settings
 from receipts.ui.app import Starter, run_stream
@@ -48,6 +65,11 @@ ENV_NAMES = (
     "DEMO_PASSCODE",
     "GIT_SHA",
     "RENDER_GIT_COMMIT",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "SESSION_SECRET",
+    "RUNS_PER_USER_PER_DAY",
+    "SIGNED_OUT_RUNS_PER_DAY",
 )
 RENDER_SHA = "0123456789abcdef0123456789abcdef01234567"  # invented
 
@@ -197,21 +219,27 @@ async def test_starter_starts_the_run_with_the_right_passcode_and_key(
     assert fake.requests[run_id] == RunRequest(subject="A", rival="B")
 
 
-def test_create_app_injects_the_starter_into_the_ui(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Deleting the injection in `mount_ui` turns this red: the UI must not bypass the passcode."""
-    seen: list[Starter | None] = []
+def test_create_app_injects_the_starter_and_the_gate_into_the_ui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deleting either injection turns this red: the UI must not bypass the passcode or the Gate.
+    `build_ui` receiving the Gate also shows it was on `app.state.gate` before `mount_ui` ran."""
+    seen: list[tuple[RunService, Starter | None, Gate | None]] = []
     import receipts.ui.app as ui_app
 
     real_build_ui = ui_app.build_ui
 
-    def spy(service: RunService, starter: Starter | None = None) -> gr.Blocks:
-        seen.append(starter)
-        return real_build_ui(service, starter=starter)
+    def spy(
+        service: RunService, starter: Starter | None = None, *, gate: Gate | None = None
+    ) -> gr.Blocks:
+        seen.append((service, starter, gate))
+        return real_build_ui(service, starter=starter, gate=gate)
 
     monkeypatch.setattr(ui_app, "build_ui", spy)
     app = create_app()
-    assert seen == [app.state.run_starter]
-    assert seen[0] is not None
+    assert seen == [(app.state.run_service, app.state.run_starter, app.state.gate)]
+    assert seen[0][1] is not None
+    assert isinstance(seen[0][2], wiring.LiveGate)
 
 
 # --- (d) git_sha: the image always bakes GIT_SHA (default "unknown"); Render sets RENDER_GIT_COMMIT
@@ -638,3 +666,438 @@ async def test_concurrent_first_calls_build_once_and_create_the_schema_once(
     results = await asyncio.gather(*(proxy.list() for _ in range(8)))
     assert results == [[]] * 8
     assert (len(builds), len(schemas)) == (1, 1)
+
+
+# --- (h) the live Gate (issue #41): identify, start, history and account ------------------------
+
+T_NOW = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
+DAY_START = datetime(2026, 11, 16, tzinfo=UTC)
+LATE_YESTERDAY = DAY_START - timedelta(hours=1)
+SESSION_KEY = "not-a-real-session-secret-for-tests"  # invented
+SUB, EMAIL = "fake-sub-0001", "visitor-0001@example.com"
+GATE_REQUEST = RunRequest(subject="Acme Widgets", rival="Zeta Gadgets", category="widgets")
+LIMIT_5 = r"^5 of 5 runs used today \(UTC\)"
+CAP_20 = r"^20 of 20 signed-out runs used today \(UTC\)"
+NO_PASSCODE = "a valid passcode is required"
+
+
+def _now() -> datetime:
+    return T_NOW
+
+
+class _QuietSpecialist:
+    """No claims, no model, no network: a run goes from `StartedEvent` to `DoneEvent` at once."""
+
+    async def run(
+        self, run_id: RunId, request: RunRequest, pack: DomainPack
+    ) -> AsyncIterator[RunEvent]:
+        del run_id, request, pack
+        return
+        yield  # pragma: no cover
+
+
+@dataclass(frozen=True)
+class Live:
+    app: FastAPI
+    gate: Gate
+    runs: SqlRunRepo
+    users: SqlUserRepo
+    service: InProcessRunService
+
+
+def _install_live(app: FastAPI, runs: SqlRunRepo, pack: DomainPack) -> InProcessRunService:
+    """What `resolve_run_service` caches once the three settings are present, with a quiet
+    specialist and a fixed clock in place of Keenable, Anthropic and the wall clock."""
+    coordinator = Coordinator([pack], _QuietSpecialist(), max_concurrent=1, clock=_now)
+    service = InProcessRunService(coordinator, runs, clock=_now)
+    app.state.live_run_service = service
+    app.state.live_repo = runs
+    app.state.schema_ready = False
+    app.state.clock = _now
+    return service
+
+
+@pytest.fixture
+async def live(
+    tmp_path: Path, sample_pack: DomainPack, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[Live]:
+    """`create_app()` with a live service on a SQLite file, a passcode and a Keenable key set."""
+    monkeypatch.setenv("DEMO_PASSCODE", PASSCODE)
+    monkeypatch.setenv("KEENABLE_API_KEY", "not-a-real-keenable-key")
+    get_settings.cache_clear()
+    app = create_app()
+    runs = SqlRunRepo(url=f"sqlite:///{tmp_path / 'live.db'}")
+    service = _install_live(app, runs, sample_pack)
+    await create_schema(runs.engine)  # so a test can seed rows before the Gate's first call
+    users = SqlUserRepo(engine=runs.engine)
+    app.state.user_repo = users
+    yield Live(app=app, gate=app.state.gate, runs=runs, users=users, service=service)
+    await runs.dispose()
+
+
+def _configure_sign_in(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The four sign-in settings (invented values); `DATABASE_URL` is a SQLite file nobody opens
+    in these tests, because the live service is already cached on the app."""
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "fake-client-id.apps.example.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "not-a-real-client-secret")
+    monkeypatch.setenv("SESSION_SECRET", SESSION_KEY)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'sign-in.db'}")
+    get_settings.cache_clear()
+
+
+async def _signed_in(live: Live, sub: str = SUB, email: str = EMAIL) -> SessionUser:
+    user = await live.users.get_or_create(sub, email, T_NOW - timedelta(days=1))
+    return new_session(user.id, now=T_NOW)
+
+
+async def _seed(
+    runs: SqlRunRepo,
+    count: int,
+    *,
+    user_id: str | None,
+    prefix: str = "seed",
+    at: datetime = T_NOW - timedelta(hours=1),
+) -> list[RunId]:
+    """`count` finished runs started at `at` (a second apart), claimed by `user_id` if given."""
+    ids: list[RunId] = []
+    for i in range(count):
+        run_id = RunId(f"run-{prefix}-{i:03d}")
+        summary = RunSummary(
+            run_id=run_id,
+            subject="Acme Widgets",
+            rival="Zeta Gadgets",
+            status="done",
+            verified_count=0,
+            total_count=0,
+            started_at=at + timedelta(seconds=i),
+        )
+        await runs.save_run(summary)
+        if user_id is not None:
+            await runs.claim_run(run_id, user_id)
+        ids.append(run_id)
+    return ids
+
+
+def test_start_of_utc_day_is_midnight_utc_of_the_utc_date() -> None:
+    late_in_new_york = datetime(2026, 11, 16, 23, 30, tzinfo=timezone(timedelta(hours=-5)))
+    assert wiring.start_of_utc_day(late_in_new_york) == datetime(2026, 11, 17, tzinfo=UTC)
+    assert wiring.start_of_utc_day(T_NOW) == DAY_START
+
+
+def test_create_app_stores_a_live_gate_and_builds_nothing() -> None:
+    app = create_app()
+    gate: Gate = app.state.gate
+    assert isinstance(gate, wiring.LiveGate)
+    for name in ("live_run_service", "user_repo", "identity_provider"):
+        assert getattr(app.state, name, None) is None, name  # all built on first use
+
+
+async def test_signed_in_start_needs_no_passcode_and_claims_the_run(live: Live) -> None:
+    user = await _signed_in(live)
+    run_id = await live.gate.start(GATE_REQUEST, "", user)
+    await live.service.wait(run_id)
+    assert [s.run_id for s in await live.runs.list_runs_for(user.user_id)] == [run_id]
+    assert await live.runs.count_runs_since(None, DAY_START) == 0  # not a signed-out run
+
+
+async def test_signed_in_at_the_limit_is_refused_and_starts_nothing(live: Live) -> None:
+    """A correct passcode does not turn a signed-in user at the limit into a signed-out run."""
+    user = await _signed_in(live)
+    await _seed(live.runs, 5, user_id=user.user_id)
+    with pytest.raises(PermissionError, match=LIMIT_5):
+        await live.gate.start(GATE_REQUEST, PASSCODE, user)
+    assert len(await live.runs.list_runs()) == 5
+
+
+async def test_runs_before_midnight_utc_do_not_count_today(live: Live) -> None:
+    user = await _signed_in(live)
+    await _seed(live.runs, 5, user_id=user.user_id, at=LATE_YESTERDAY)
+    run_id = await live.gate.start(GATE_REQUEST, "", user)
+    await live.service.wait(run_id)
+    assert len(await live.runs.list_runs_for(user.user_id)) == 6
+
+
+async def test_signed_out_with_a_wrong_passcode_is_refused_and_starts_nothing(live: Live) -> None:
+    with pytest.raises(PermissionError, match=NO_PASSCODE):
+        await live.gate.start(GATE_REQUEST, "wrong", None)
+    assert await live.runs.list_runs() == []
+
+
+async def test_signed_out_with_the_right_passcode_at_the_cap_is_refused(live: Live) -> None:
+    await _seed(live.runs, 20, user_id=None)
+    with pytest.raises(PermissionError, match=CAP_20):
+        await live.gate.start(GATE_REQUEST, PASSCODE, None)
+    assert len(await live.runs.list_runs()) == 20
+
+
+async def test_signed_out_with_the_right_passcode_starts_a_run_with_no_user(live: Live) -> None:
+    run_id = await live.gate.start(GATE_REQUEST, PASSCODE, None)
+    await live.service.wait(run_id)
+    assert [s.run_id for s in await live.runs.list_runs_for(None)] == [run_id]
+
+
+class _CountsRepo(SqlRunRepo):
+    """Different counts for a user and for no user, so a count in the wrong `may_start` slot, or
+    the wrong owner counted, changes the decision. Records every count it is asked for."""
+
+    def __init__(self, url: str, counts: dict[str | None, int]) -> None:
+        super().__init__(url)
+        self.counts = counts
+        self.asked: list[tuple[str | None, datetime]] = []
+
+    async def count_runs_since(self, user_id: str | None, since: datetime) -> int:
+        self.asked.append((user_id, since))
+        return self.counts[user_id]
+
+
+SLOT_USER = "user-slot-0001"
+
+
+@pytest.mark.parametrize(
+    ("signed_in", "counts", "refusal"),
+    [
+        (True, {SLOT_USER: 3, None: 0}, r"^3 of 3 runs used today \(UTC\)"),
+        (False, {SLOT_USER: 0, None: 7}, r"^7 of 7 signed-out runs used today \(UTC\)"),
+        (True, {SLOT_USER: 2, None: 7}, None),
+        (False, {SLOT_USER: 3, None: 6}, None),
+    ],
+    ids=["signed-in-at-limit", "signed-out-at-cap", "signed-in-under", "signed-out-under"],
+)
+async def test_each_count_reaches_its_own_may_start_slot(
+    tmp_path: Path,
+    sample_pack: DomainPack,
+    monkeypatch: pytest.MonkeyPatch,
+    signed_in: bool,
+    counts: dict[str | None, int],
+    refusal: str | None,
+) -> None:
+    """`may_start` takes the two counts as adjacent ints, so a swapped call would type-check.
+    Distinct limits (3 per user, 7 signed out) also catch swapped limits in the reason."""
+    for name, value in (
+        ("DEMO_PASSCODE", PASSCODE),
+        ("KEENABLE_API_KEY", "not-a-real-keenable-key"),
+        ("RUNS_PER_USER_PER_DAY", "3"),
+        ("SIGNED_OUT_RUNS_PER_DAY", "7"),
+    ):
+        monkeypatch.setenv(name, value)
+    get_settings.cache_clear()
+    app = create_app()
+    repo = _CountsRepo(f"sqlite:///{tmp_path / 'slots.db'}", counts)
+    service = _install_live(app, repo, sample_pack)
+    owner = SLOT_USER if signed_in else None
+    user = (
+        SessionUser(user_id=SLOT_USER, expires_at=T_NOW + timedelta(days=1)) if signed_in else None
+    )
+    if refusal is None:
+        await service.wait(await app.state.gate.start(GATE_REQUEST, PASSCODE, user))
+    else:
+        with pytest.raises(PermissionError, match=refusal):
+            await app.state.gate.start(GATE_REQUEST, PASSCODE, user)
+    assert repo.asked == [(owner, DAY_START)]  # only the visitor's own count, from 00:00 UTC
+    await repo.dispose()
+
+
+async def test_a_missing_keenable_key_is_a_permission_error_naming_it(
+    live: Live, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The UI then needs only `PermissionError`; the message is the name, never a value."""
+    monkeypatch.delenv("KEENABLE_API_KEY")
+    get_settings.cache_clear()
+    user = await _signed_in(live)
+    for passcode, who in ((PASSCODE, None), ("", user)):
+        with pytest.raises(PermissionError) as excinfo:
+            await live.gate.start(GATE_REQUEST, passcode, who)
+        assert str(excinfo.value) == "KEENABLE_API_KEY is not set"
+        assert not isinstance(excinfo.value, MissingSettingError)
+    assert await live.runs.list_runs() == []
+
+
+async def test_a_wrong_passcode_is_refused_before_the_key_is_checked(
+    live: Live, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stranger learns nothing about whether the key is set."""
+    monkeypatch.delenv("KEENABLE_API_KEY")
+    get_settings.cache_clear()
+    with pytest.raises(PermissionError, match=NO_PASSCODE):
+        await live.gate.start(GATE_REQUEST, "wrong", None)
+
+
+async def test_the_run_id_from_gate_start_is_followed_through_app_state_run_service(
+    live: Live,
+) -> None:
+    """The UI follows a gated run with `app.state.run_service.events(run_id)`."""
+    run_id = await live.gate.start(GATE_REQUEST, PASSCODE, None)
+    events = [event async for event in live.app.state.run_service.events(run_id)]
+    assert isinstance(events[0], StartedEvent) and events[0].subject == GATE_REQUEST.subject
+    assert isinstance(events[-1], DoneEvent)
+    assert {event.run_id for event in events} == {run_id}
+
+
+async def test_history_is_the_users_runs_signed_in_and_unowned_runs_signed_out(
+    live: Live,
+) -> None:
+    user = await _signed_in(live)
+    other = await _signed_in(live, "fake-sub-0002", "other@example.com")
+    mine = await _seed(live.runs, 2, user_id=user.user_id, prefix="mine")
+    await _seed(live.runs, 1, user_id=other.user_id, prefix="other")
+    unowned = await _seed(live.runs, 1, user_id=None, prefix="unowned")
+    assert [s.run_id for s in await live.gate.history(user)] == mine[::-1]  # newest first
+    assert [s.run_id for s in await live.gate.history(None)] == unowned
+
+
+async def test_account_signed_in_shows_the_email_and_todays_count_for_that_user(
+    live: Live, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _configure_sign_in(monkeypatch, tmp_path)
+    user = await _signed_in(live)
+    await _seed(live.runs, 2, user_id=user.user_id, prefix="mine")
+    await _seed(live.runs, 3, user_id=user.user_id, prefix="old", at=LATE_YESTERDAY)
+    await _seed(live.runs, 4, user_id=None, prefix="unowned")
+    assert await live.gate.account(user) == AccountStatus(
+        email=EMAIL, runs_used=2, runs_limit=5, sign_in_available=True
+    )
+    assert await live.gate.account(None) == AccountStatus(
+        email=None, runs_used=4, runs_limit=20, sign_in_available=True
+    )
+
+
+async def test_account_of_a_deleted_user_reads_as_signed_out(
+    live: Live, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _configure_sign_in(monkeypatch, tmp_path)
+    ghost = new_session("user-deleted-0001", now=T_NOW)
+    await _seed(live.runs, 2, user_id=ghost.user_id, prefix="ghost")
+    await _seed(live.runs, 4, user_id=None, prefix="unowned")
+    assert await live.gate.account(ghost) == AccountStatus(
+        email=None, runs_used=4, runs_limit=20, sign_in_available=True
+    )
+
+
+async def test_account_hides_sign_in_when_it_is_not_configured(live: Live) -> None:
+    assert await live.gate.account(None) == AccountStatus(
+        email=None, runs_used=0, runs_limit=20, sign_in_available=False
+    )
+
+
+async def test_demo_mode_starts_without_a_passcode_and_counts_and_claims_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _no_demo_delay(monkeypatch)
+
+    async def forbidden(*args: object) -> None:
+        raise AssertionError("demo mode reads and writes no run table")
+
+    monkeypatch.setattr(SqlRunRepo, "count_runs_since", forbidden)
+    monkeypatch.setattr(SqlRunRepo, "claim_run", forbidden)
+    app = create_app()
+    signed_in = SessionUser(user_id="user-demo-0001", expires_at=T_NOW + timedelta(days=1))
+    for who in (None, signed_in):
+        run_id = await app.state.gate.start(USER_REQUEST, "", who)
+        events = [event async for event in app.state.run_service.events(run_id)]
+        assert isinstance(events[-1], DoneEvent)
+        assert USER_SUBJECT not in str(events)  # the demo's own names, as before issue #41
+
+
+async def test_demo_mode_history_is_the_service_list_and_the_account_is_zeros(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Even with sign-in configured: the demo stores nothing, so there is nothing to count."""
+    _no_demo_delay(monkeypatch)
+    _configure_sign_in(monkeypatch, tmp_path)
+    app = create_app()
+    run_id = await app.state.gate.start(USER_REQUEST, "", None)
+    _ = [event async for event in app.state.run_service.events(run_id)]
+    assert [s.run_id for s in await app.state.gate.history(None)] == [run_id]
+    assert await app.state.gate.account(None) == AccountStatus(
+        email=None, runs_used=0, runs_limit=0, sign_in_available=False
+    )
+
+
+def _session_token(user_id: str) -> str:
+    return sign_session(new_session(user_id, now=T_NOW), secret=SecretStr(SESSION_KEY))
+
+
+def _request_with(token: str | None, app: FastAPI) -> Request:
+    """A request as Gradio hands it over: its `app` is Gradio's sub-app, not ours."""
+    headers = [] if token is None else [(b"cookie", f"{SESSION_COOKIE}={token}".encode())]
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/ui/gradio_api/queue/join",
+        "headers": headers,
+        "query_string": b"",
+        "app": app,
+    }
+    return Request(scope)
+
+
+def test_identify_reads_a_valid_session_cookie_and_nothing_else(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _configure_sign_in(monkeypatch, tmp_path)
+    app = create_app()
+    app.state.clock = _now
+    token = _session_token("user-0001")
+    assert app.state.gate.identify(_request_with(token, FastAPI())) == new_session(
+        "user-0001", now=T_NOW
+    )
+    assert app.state.gate.identify(_request_with(None, FastAPI())) is None
+    assert app.state.gate.identify(_request_with(token[:-2] + "xx", FastAPI())) is None
+
+
+def test_identify_uses_the_apps_clock_not_the_gradio_sub_apps(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`get_clock(request)` would read the sub-app's state; the Gate reads `app.state.clock`."""
+    _configure_sign_in(monkeypatch, tmp_path)
+    app = create_app()
+    app.state.clock = lambda: T_NOW + timedelta(days=8)  # past the 7-day session
+    sub_app = FastAPI()
+    sub_app.state.clock = _now
+    assert app.state.gate.identify(_request_with(_session_token("user-0001"), sub_app)) is None
+
+
+def test_identify_is_none_when_sign_in_is_not_configured() -> None:
+    app = create_app()
+    app.state.clock = _now
+    assert app.state.gate.identify(_request_with(_session_token("user-0001"), FastAPI())) is None
+
+
+async def test_the_first_live_use_creates_users_and_runs_user_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`_ensure_schema` runs `create_schema` once, on the first live call, never at startup."""
+    _configure_live(monkeypatch, tmp_path)
+    _stub_keenable(monkeypatch)
+    app = create_app()
+    assert await app.state.gate.history(None) == []
+    catalogue = inspect(app.state.live_repo.engine)
+    assert {"runs", "users"} <= set(catalogue.get_table_names())
+    assert "user_id" in {column["name"] for column in catalogue.get_columns("runs")}
+
+
+def test_the_live_repo_and_the_user_repo_share_one_engine(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One pool: otherwise the first sign-in builds a second engine on `DATABASE_URL`."""
+    _configure_live(monkeypatch, tmp_path)
+    _stub_keenable(monkeypatch)
+    app = create_app()
+    resolve_run_service(app)
+    assert isinstance(app.state.user_repo, SqlUserRepo)
+    assert app.state.user_repo.engine is app.state.live_repo.engine
+
+
+def test_the_identity_provider_is_built_on_first_use_and_kept_for_the_process() -> None:
+    """Per process, not per request (ADR-0008): the key cache lives as long as the provider."""
+    app = create_app()
+    config = SignInConfig(
+        "fake-client-id.apps.example.com",
+        SecretStr("not-a-real-client-secret"),
+        SecretStr(SESSION_KEY),
+    )
+    request = _request_with(None, app)
+    first = get_identity_provider(request, config)
+    assert isinstance(first, GoogleIdentityProvider)
+    assert get_identity_provider(request, config) is first
+    assert app.state.identity_provider is first
