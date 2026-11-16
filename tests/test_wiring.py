@@ -55,7 +55,7 @@ from receipts.fakes import FakeRunService
 from receipts.harness import Coordinator, InProcessRunService
 from receipts.harness.live import KeenableFetchClient, KeenableSearchClient
 from receipts.settings import MissingSettingError, Settings, get_settings
-from receipts.ui.app import Starter, run_stream
+from receipts.ui.app import Starter, gated_run_stream
 
 PASSCODE = "open-sesame"
 ENV_NAMES = (
@@ -465,16 +465,19 @@ def _api(app: FastAPI) -> httpx.AsyncClient:
 
 
 async def _ui_run(app: FastAPI, passcode: str) -> tuple[str, str]:
-    """Drive the Run panel exactly as Gradio does: the mounted service and the injected starter."""
+    """Drive the Run panel's handler for a signed-out visitor: `create_app()` always wires a Gate,
+    so the panel runs `gated_run_stream` over the mounted service and `app.state.gate` (the
+    `starter` is unused). `None` stands for Gradio's request, which carries no session cookie."""
     snapshots = [
         snapshot
-        async for snapshot in run_stream(
+        async for snapshot in gated_run_stream(
             app.state.run_service,
+            app.state.gate,
+            None,
             USER_SUBJECT,
             USER_RIVAL,
             "kites",
             passcode,
-            starter=app.state.run_starter,
         )
     ]
     return snapshots[-1]
@@ -979,16 +982,14 @@ async def test_account_hides_sign_in_when_it_is_not_configured(live: Live) -> No
     )
 
 
-async def test_demo_mode_starts_without_a_passcode_and_counts_and_claims_nothing(
+async def test_local_demo_starts_without_a_passcode_or_a_key_signed_in_or_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Local demo (no passcode configured, no live settings): the demo branch decides before the
+    start rule and the key check. Run through either, a blank passcode is refused signed out and
+    the missing Keenable key is refused for everyone. No run table exists here, so there is
+    nothing to count or claim (the half-configured tests below pin the uncounted part)."""
     _no_demo_delay(monkeypatch)
-
-    async def forbidden(*args: object) -> None:
-        raise AssertionError("demo mode reads and writes no run table")
-
-    monkeypatch.setattr(SqlRunRepo, "count_runs_since", forbidden)
-    monkeypatch.setattr(SqlRunRepo, "claim_run", forbidden)
     app = create_app()
     signed_in = SessionUser(user_id="user-demo-0001", expires_at=T_NOW + timedelta(days=1))
     for who in (None, signed_in):
@@ -1101,3 +1102,61 @@ def test_the_identity_provider_is_built_on_first_use_and_kept_for_the_process() 
     assert isinstance(first, GoogleIdentityProvider)
     assert get_identity_provider(request, config) is first
     assert app.state.identity_provider is first
+
+
+# --- (i) half-configured: DEMO_PASSCODE set, a live setting missing, so the Gate serves the demo -
+# The UI always starts runs through `gate.start` (`create_app()` always wires the Gate), so these
+# drive that path, not `app.state.run_starter`.
+
+
+@pytest.mark.parametrize("passcode", ["wrong", "", "   "], ids=["wrong", "blank", "whitespace"])
+async def test_half_configured_gate_refuses_a_wrong_or_blank_passcode_and_starts_nothing(
+    monkeypatch: pytest.MonkeyPatch, passcode: str
+) -> None:
+    _configure_partial(monkeypatch)
+    app = create_app()
+    with pytest.raises(PermissionError, match=f"^{NO_PASSCODE}$"):
+        await app.state.gate.start(USER_REQUEST, passcode, None)
+    assert await app.state.run_service.list() == []
+
+
+async def test_half_configured_gate_checks_the_passcode_before_the_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No Keenable key: a wrong passcode is refused as a wrong passcode, so a stranger learns
+    nothing about the key; the right passcode reaches the key check, which names the variable."""
+    monkeypatch.setenv("DEMO_PASSCODE", PASSCODE)
+    get_settings.cache_clear()
+    app = create_app()
+    with pytest.raises(PermissionError, match=f"^{NO_PASSCODE}$"):
+        await app.state.gate.start(USER_REQUEST, "wrong", None)
+    with pytest.raises(PermissionError) as excinfo:
+        await app.state.gate.start(USER_REQUEST, PASSCODE, None)
+    assert str(excinfo.value) == "KEENABLE_API_KEY is not set"
+    assert await app.state.run_service.list() == []
+
+
+async def test_half_configured_gate_replays_the_demo_with_the_passcode_uncounted_and_unclaimed(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A signed-out cap of 1: had the first demo run counted, the second would be refused. The demo
+    stores nothing, so neither a run repo nor a user repo is ever built for a claim to write to.
+    The drift is logged once, naming the missing settings."""
+    _configure_partial(monkeypatch)
+    monkeypatch.setenv("SIGNED_OUT_RUNS_PER_DAY", "1")
+    get_settings.cache_clear()
+    _no_demo_delay(monkeypatch)
+    caplog.set_level(logging.WARNING, logger=WIRING_LOGGER)
+    app = create_app()
+    for _ in range(2):
+        run_id = await app.state.gate.start(USER_REQUEST, PASSCODE, None)
+        events = [event async for event in app.state.run_service.events(run_id)]
+        assert isinstance(events[0], StartedEvent)
+        assert (events[0].subject, events[0].rival) == DEMO_NAMES
+        assert isinstance(events[-1], DoneEvent)
+    history = await app.state.gate.history(None)
+    assert [(s.subject, s.rival) for s in history] == [DEMO_NAMES]
+    for name in ("live_run_service", "live_repo", "user_repo"):
+        assert getattr(app.state, name, None) is None, name
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1, [r.getMessage() for r in warnings]
