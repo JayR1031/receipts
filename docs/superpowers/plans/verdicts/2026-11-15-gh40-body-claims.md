@@ -1,0 +1,115 @@
+# Claims verdict: PR #47 description draft (issue #40, head `7ee918e`): round 1 FAIL; round 2 PASS (2026-11-15, see "Round 2" at the end)
+
+- **Draft checked:** `D` = `S/pr40-body.md` (51 lines, sha256 `b77f393a…`), cited as `D:<line>`. `S` = `/private/tmp/claude-501/-Users-jay-Projects-receipts/477932e0-9e2e-4163-93cf-4433b57d002f/scratchpad`.
+- **Code under the claims:** branch `jay/gh-40-ui-status`, head `7ee918eef18b…` (`git rev-parse HEAD`, exit 0), the same as `gh pr view 47 --json headRefOid` (exit 0; PR #47 is still a draft). Base `origin/main` = `b8ed8d6f…`. The worktree was not modified: `git status --short` printed nothing at the end (exit 0).
+- **Method:** I listed 40 claims in `D`, found an artifact for each, and re-ran what could be re-run read-only. Test runs used a `git archive` copy of `7ee918e` at `S/claims-gh40-body/head`, with the worktree's `.venv` (`uv run --no-sync`, `PYTHONDONTWRITEBYTECODE=1`, `__pycache__` removed first). The only repository file I wrote is this verdict. The draft was not posted.
+
+## Commands run
+
+| Command | Exit | Result |
+|---|---|---|
+| `git log --format='%h %an %s %b' origin/main..HEAD` | 0 | 6 commits, all authored `Jay Alexander`. A `Co-Authored-By: Claude` trailer is on `5534730` and `7ee918e` only |
+| `git diff --name-only origin/main...HEAD` (at `7ee918e`) | 0 | 8 paths: `src/receipts/ui/{render,theme}.py`, `tests/test_ui_{app,render,theme}.py`, `docs/assets/ui-theme-{after,battlecard,history}.png`. No frozen file (AGENTS.md:104), nothing under `.github/`, no ignore file |
+| `git show --stat 7ee918e`; `git diff --quiet a94f668 7ee918e -- src tests` | 0; 0 | 1 file, `ui-theme-battlecard.png`. `src` and `tests` are identical at the two commits |
+| `git show --stat 5534730` | 0 | 1 file, `ui-theme-before.png` |
+| `shasum -a 256` on the 5 PNGs at `7ee918e` and at `origin/main`; `file` | 0 | `before` and `landing` are the same as main's (`55e9c6cc…`, `dd061e84…`). `after` and `history` are 1440x1000; `battlecard` is 1440x1039 with sha `9d73e875…`, the same as `S/shot/battlecard.png` |
+| `gh issue view 40`; `gh pr view 36 --json mergeCommit,body`; `gh pr view 47 --json …` | 0, 0, 0 | Issue #40 cites `gh34-r2.md` LOWs; PR #36 merged as `002b2ae`; PR #36 body line 15 lists the 5 PNGs by file name only |
+| `gh pr checks 47`; `gh run list --branch jay/gh-40-ui-status` | 0; 0 | 5 of 5 jobs pass on `7ee918e` (runs 43687324112, 43687324136, 43687324312). 3 of 3 workflow runs passed on `a94f668` (43686026915, 43686026920, 43686026925). `gh run view 43687324136` returned HTTP 502 (exit 1); `run list` shows its headSha is `7ee918e` |
+| Copy of `7ee918e`: `pytest -q -m "not integration" -rs` | 1, then 0 | First run: 1 failed (`tests/test_settings.py:89`). This came from my copy, not the code: the test starts `uv run --no-sync` with a clean environment, which made an empty `.venv` in the copy (`ModuleNotFoundError: receipts`). With the worktree `.venv` linked into the copy: **215 passed, 9 deselected**, `grep -ci skip` = 0. `--collect-only -m integration`: 9 of 224 |
+| Copy: each UI test file alone | 0, 0, 0 | `test_ui_app.py` 10 passed; `test_ui_render.py` 4; `test_ui_theme.py` 15 |
+| Copy: `ruff format --check .`, `ruff check .`, `pyright` | 0, 0, 0 | 81 files already formatted; all checks passed; 0 errors. I did not run `bin/jig` itself, because it calls `uv run` without `--no-sync` and could re-sync the worktree's `.venv` |
+| Copy: `S/gh40-r2/scripts/md_probe.py` | 0 | Gradio 6.32.0, `sanitize_html` True. `status-verified`: 1 in, 1 after `postprocess`; `status-dropped`: 1 in, 1 after |
+| `grep` on `S/gh40-r2/browser_dom.html`; pixel sample of `browser_probe.png` | 0; 0 | Both spans are present, with 0 `&lt;span`; the textbox value in the config is plain text. `[verified]` (52,211,153) = `#34d399`; `[unverified]` (248,113,113) = `#f87171`; progress box: 0 chromatic pixels |
+| Pixel sample of the committed `ui-theme-battlecard.png` at `7ee918e` | 0 | Progress box (216,480)-(1224,744): 0 chromatic pixels. `[verified]` mark: (52,211,153). Whole card: 330 chromatic pixels, all emerald. **No `[unverified]` row is pictured** |
+| `diff -q` of `S/gh40-r2/red-main-ui` against git | 0 | `src/receipts/ui/{render,theme,app}.py` = `origin/main`'s; the 3 UI test files = `a94f668`'s. `red-main-ui.out:57`: 2 failed, 27 passed |
+| `S/gh40-r2/sab.txt`, plus `grep` for the failing line in each `sab/*.out` | 0 | 34 entries; `import_exit=0` for 34 of 34; `pytest_exit=1` for 29, and 0 for 5 (s28, s29, s31, s32, s34). Each of the 12 coverage lines in r2 verdict:70-82 has at least one red sabotage |
+| `git -C /Users/jay/Projects/receipts status --short` (brief, both gh40 verdicts); `git ls-files --error-unmatch …gh40-r2.md` | 0; 1 | All 3 are untracked (`??`), and the r2 verdict is not known to git |
+| Worktree `.venv` `_editable_impl_receipts.pth` | 0 | Points to `.worktrees/ui-status/src`, so `S/shot/take.sh` served the worktree's code |
+
+## Claims that hold (no finding)
+
+- D:3: `render.py:90-94` at `7ee918e`; colours at `theme.py:46-47` and `:221-222`. D:3, the progress log: `app.py:80` is a `gr.Textbox`, and `render.py:42-49` emit no span.
+- D:4: `test_ui_theme.py:167-169`; s04, s05, s06, s25 and s26 are red.
+- D:5: `test_ui_theme.py:172-173`, `:366-372`; `theme.py:35,70` (background `#000000`).
+- D:6, first half (3-digit hex, named colours, `hsl`/`hsla`, wiring test fails on dropped `theme=`/`css=`): s07, s08-s12, s01-s03 are red.
+- D:8 and D:9: `file` and an image read (empty Run tab; one run row).
+- D:11, byte-identical part: shas above. D:16, restore part: `git show --stat 5534730`.
+- D:18: round-1 verdict lines 1 and 72-84 (H1-H2, M1-M5, L1-L6). D:19, the first sentence: r2 verdict line 1, lines 115-122, and `git status` (`??`).
+- D:23-26: r2 verdict lines 15-17, reproduced on `7ee918e` above.
+- D:28-31: two methods (server `postprocess` and browser DOM plus pixels), both reproduced above.
+- D:33-34: `red-main-ui.out:21-26` (`:68`, `0 == 2`) and `:42-53` (`ValueError`); `sab/s14-contrast-text.out:14` → `test_ui_theme.py:371`; `sab/s15-contrast-focus.out:15` → `:372`.
+- D:35-38, the counts: `sab.py:51` (one archive per copy), `:61-63` (import before pytest), and `sab.txt` as above. The 7 that were green in round 1 (s03, s05, s07, s08, s10, s12, s19; round-1 verdict lines 39-55) are all red now.
+- D:41: `gh pr checks 47` and `gh run list`, above.
+- D:44-47: r2 verdict L1-L4; `test_ui_theme.py:28` (`HEX` is defined and never used), `:152-158` and `:180-184` (two expanders), `:351-353`; `test_ui_render.py:38`; s28, s29, s32 and s34 exit 0; s30 fails at `:353` with `['white']`.
+
+## Findings
+
+| # | Claim (quoted) | Invariant | Severity | Evidence or what is missing | Fix |
+|---|---|---|---|---|---|
+| 1 | D:19 "and its MEDIUM 2 by this description's evidence section" | I4 (a verdict the evidence does not carry); Numbers | **HIGH** | The fix that M2 asks for (r2 verdict line 116) is: "the red run (command, exit, failing tests), and one sabotage per guard for the 12 guards, each with its command, exit code and red test". The draft gives the red run without its command (D:32) and gives sabotage only as totals (D:36-38). It never lists the 12 guards or which sabotage turned each one red, and D:40 says the scripts and outputs exist only in the scratch directory. The per-guard map does exist, in r2 verdict lines 70-82 and in the `sab/*.out` failing lines: `test_ui_render.py:38` s21/s22, `:69` s18/s23, `test_ui_app.py:101` s02/s03, `:105` s01, `test_ui_theme.py:168` s05/s06, `:169` s25/s26, `:113` s07, `:346` s10, `:353` s08/s09, `:355` s12, `:376` s19, `:377` s24/s33. None of it is in the draft | Put a 12-row table in the body: guard `file:line`, sabotage id, the injected edit (`sab.py:13-46`), pytest exit, and the red test. Add the red-run command. Or change D:19 to "M2: partly addressed; the per-guard table is **pending**" |
+| 2 | D:6 "and the only chromatic colours allowed are the two status colours" | I1 (contradicted by the evidence) | MEDIUM | `sab.txt:57-58,62`: s28 `oklch()`, s29 `hwb()` and s32 `RGB()` add chromatic colours, and pytest exits 0. `test_ui_theme.py:29` (`rgba?\(` is case-sensitive) and `:111-115`. The draft's own gap 2 (D:45) contradicts this sentence | Say "no chromatic hex, `rgb()`/`rgba()`, `hsl()`/`hsla()` or named colour other than the two status colours; `oklch()`, `hwb()` and upper-case `RGB()` are not checked (gap 2)" |
+| 3 | D:6 "it checks `/ui/config` for the CSS and `/ui/theme.css` for a 200" | I1 (wrong mechanism) | MEDIUM | `tests/test_ui_app.py:104-105` at `7ee918e` also asserts `"#000000" in theme_css.text`. With `theme=` dropped, `theme.css` still returns `<Response [200 OK]>`, and s01 fails at `:105`, not at the 200 check (`sab/s01-drop-theme.out:17-21`). A 200 check alone would not catch a dropped `theme=` | "…and `/ui/theme.css` for a 200 that contains the theme's `#000000`" |
+| 4 | D:14 "Mel, the desktop agent, built `a31a101`, `c4f840d` and `bf26e30`, and the repair `a94f668`." | I1, I3 | MEDIUM | `git log origin/main..HEAD` (exit 0): all 6 commits have the same git author. The only difference is that these 4 have no `Co-Authored-By: Claude` trailer, which is true of any author other than this session. The brief is addressed to Mel (brief line 1). The only link from these 4 commits to Mel is the owner's paraphrased relay of Mel's report, and there is no saved artifact of it. The draft cites none of this | Cite the brief and the trailer pattern, state that git authorship does not distinguish the builders, and attribute it as "per Mel's report, relayed by the owner" |
+| 5 | D:16 "which the session's own brief had wrongly said to retake" | I5 | MEDIUM | The correction is made only in this PR. The brief, `docs/superpowers/briefs/2026-11-15-gh40-mel-ui-status.md:24`, still says "Retake `docs/assets/ui-theme-*.png` at your final commit", and lines 1-3 have no dated correction (the file is untracked, `??`) | Add a dated correction note at the top of the brief: the retake excludes `before` and `landing` |
+| 6 | D:19 "Its MEDIUM 1 is fixed by `7ee918e`" | I1, I4 (the evidence exists but is not in the draft) | MEDIUM | It is true on two methods I found: (a) the committed PNG's sha `9d73e875…` = `S/shot/battlecard.png`, and `S/shot/take.sh:2-3,10` served the worktree's `src`, which is identical at `a94f668` and `7ee918e` (exit 0); (b) pixels of the committed PNG: 0 chromatic pixels in the progress box, and `[verified]` = `#34d399`. The draft cites neither, and no judge has reviewed `7ee918e` | Cite the sha match, `take.sh` and the pixel check, or call M1 "fixed, **pending** review" |
+| 7 | D:27 "every changed path is in `src/receipts/ui/`, `tests/test_ui_*.py` or `docs/assets/ui-theme-*.png`. No frozen file, workflow or ignore file is touched." | I2, I1 | MEDIUM | The claim is true: `git diff --name-only origin/main...HEAD` at `7ee918e` (exit 0) lists 8 paths, all inside those globs. But this negative claim names neither the range nor the command, nor which files count as frozen | "`git diff --name-only b8ed8d6...7ee918e` (exit 0): 8 paths…; frozen files per AGENTS.md section 9; 0 under `.github/`; 0 ignore files" |
+| 8 | D:32 "The round-2 judge ran the head's tests against main's UI code: exit 1, 2 of 29 failed." | I6, Numbers | MEDIUM | The result holds: `red-main-ui.out:57`, and `diff -q` shows main's UI source with the 3 test files from `a94f668`. Exit 1 is recorded only at r2 verdict line 21; the `.out` file has no exit code. "The head's tests" was only the 3 UI test files (29 tests), not the suite (224 tests). The build and the command are not quoted | Name the set ("2 of the 29 tests in the 3 UI test files") and quote the build (an archive of `a94f668` with `src/receipts/ui` from `origin/main`) and the pytest command |
+| 9 | D:35-40 "34 defects were tried. 29 turned a test red…", and D:28-31, the browser probe | I6 | MEDIUM | The injected edits are not quoted. The driver `S/gh40-r2/scripts/sab.py`, its outputs, the probe scripts, and the r2 verdict cited at D:19 are all in a session scratch directory or an untracked file (`git ls-files --error-unmatch`, exit 1). A PR reader cannot open them, and a reboot can clear them | Quote the edit list from `sab.py:13-46` in the body, or commit the driver and its summary. Say where the probe scripts can be read |
+| 10 | D:2 "Issue #40 lists the round-2 blind judge's LOW findings" | Clarity | LOW | This is #34's round-2 judge (`gh issue view 40`: `2026-11-15-gh34-r2.md`). D:19-38 use "the round-2 judge" for #40's judge (`2026-11-15-gh40-r2.md`). These are two judges with the same label | Say "#34's round-2 judge" and "this PR's round-2 judge" |
+| 11 | D:2 "This PR closes them in lane L5." | I1 | LOW | AGENTS.md:102 defines L5 as `src/receipts/ui/**` and `tests/test_ui*.py`. 3 of the 8 changed paths are `docs/assets/*.png`, allowed by brief line 10, not by L5 | "in lane L5, plus the screenshots the brief allows" |
+| 12 | D:10 "`ui-theme-battlecard.png`: retaken at the repaired head." (read alongside D:3) | Clarity | LOW | Pixel sample: the card has 330 chromatic pixels, all emerald, and no `[unverified]` row. Red-400 on a card appears only in the judge's scratch probe (`browser_probe.png`). The draft does not claim the screenshot shows it, but a reader may assume it does | Add: "the demo card has no unverified claim, so only emerald is pictured" |
+| 13 | D:11 "because PR #36 cites them as the old theme and the landing site" | I1 | LOW | `gh pr view 36 --json body`, line 15, lists the files by name only. "Old theme" and "landing site" describe the images (round-1 verdict line 5; the `5534730` message), not PR #36's words | "PR #36 lists them among its screenshots; on main they show the pre-#34 theme and the landing site" |
+| 14 | D:17 "with the app started from an empty environment" | I1 | LOW | The draft names no source. `S/shot/take.sh:3` runs `env -i` with 4 variables (`HOME`, `PATH`, `GRADIO_ANALYTICS_ENABLED`, `HF_HUB_OFFLINE`), none of them an app setting. The worktree has no `.env` file (`ls`, exit 1), and `settings.py:17` sets no `env_file` | Cite `take.sh`, and say "with no app settings in the environment" |
+| 15 | D:18 "It found 2 HIGH … It also found 5 MEDIUM and 6 LOW." | I1 | LOW | The claim is true (round-1 verdict lines 72-84), but the draft names only the round-2 verdict's path | Add `docs/superpowers/plans/verdicts/2026-11-15-gh40.md` (untracked) |
+| 16 | D:36 "34 defects were tried" | Numbers | LOW | The 34 are 28 defect injections, 4 probes and 2 controls (r2 verdict lines 29-31). D:36-37 itself calls S30 and S31 controls, so the set is mislabelled | "34 changes were tried: 28 defects, 4 probes beyond the issue, 2 controls" |
+| 17 | D:41 "5 of 5 checks passed on `a94f668` and again on `7ee918e`" | I6 | LOW | The claim is true (`gh run list`, exit 0), but `gh pr checks 47` now shows only `7ee918e`, and the draft gives no run id for `a94f668` | Add the run ids: 43686026915, 43686026920 and 43686026925 (`a94f668`); 43687324112, 43687324136 and 43687324312 (`7ee918e`) |
+| 18 | D:32 "Mel's report did not record a usable red run for each new guard" | I1 | LOW | The source is the owner's paraphrased relay, and there is no saved copy. r2 verdict lines 105-109 record the same gap | "per the owner's relay of Mel's report; the round-2 verdict (lines 105-109) records the same" |
+
+VERDICT: FAIL
+
+## Round 2 (2026-11-15): the rewritten draft
+
+- **Draft checked:** `D2` = the same path, `S/pr40-body.md`, now 76 lines with sha256 `c6f0a091…`, cited as `D2:<line>`. The head is still `7ee918e` (`git rev-parse HEAD`, exit 0), and the worktree is clean (`git status --short`, empty). PR #47's live body is still the "Draft. Opened early so CI runs" placeholder (`gh pr view 47 --json body`, exit 0), so nothing has been posted.
+- **Re-checks run:**
+  - **The red run as D2:36 quotes it.** I made a fresh archive of `a94f668`, replaced its `src/receipts/ui/` with `origin/main`'s (`diff -q`: `render.py`, `theme.py` and `app.py` = main's), and ran `uv run --no-sync pytest -q tests/test_ui_app.py tests/test_ui_render.py tests/test_ui_theme.py -p no:cacheprovider`. Exit 1: 2 failed, 27 passed. One fails at `test_ui_render.py:68` and one at `test_ui_theme.py:158` (`ValueError`). Output: `S/claims-gh40-body/red-r2.out`.
+  - **The 12-row table at D2:44-55** against the failing line in each `S/gh40-r2/sab/*.out`: 12 of 12 rows match. The ratios at D2:38 match `sab/s14-contrast-text.out:11` (2.6875) and `sab/s15-contrast-focus.out:12` (2.0254).
+  - **Test names at `origin/main` vs `a94f668`.** I diffed the `def test_` lines. Six theme tests and one app test are new in this PR. `grep status-verified` on main's `test_ui_render.py` exits 1, so the assert at `:68` is new too. The chromatic test with `RGB.findall` is already on main (`origin/main:tests/test_ui_theme.py:109,114`).
+  - **The brief:** a dated correction is now at line 3 of `docs/superpowers/briefs/2026-11-15-gh40-mel-ui-status.md`. The file is still untracked.
+  - **CI:** the run ids at D2:66 match `gh run list` from round 1.
+
+### Round-1 findings on the rewritten draft
+
+| R1 # | Round-1 severity | Status in D2 | Evidence |
+|---|---|---|---|
+| 1 | HIGH | **Resolved.** D2:23 now says "answered", and the body carries the red-run setup and command (D2:36) plus a 12-row table of guards and sabotages (D2:42-55) | Red run reproduced (exit 1, 2 of 29). Table matches `sab/*.out` in 12 of 12 rows. What is left is re-runnability, in R2-2 |
+| 2 | MEDIUM | Resolved (D2:6) | It now names the forms that are caught and the ones that are not, matching `sab.txt:57-58,62` |
+| 3 | MEDIUM | Partly resolved. The `#000000` assert is now named, but the response it reads is wrong | R2-3 |
+| 4 | MEDIUM | Resolved (D2:15) | Relay, no saved copy, same git author on all six commits, no trailer on these four: matches `git log` from round 1 |
+| 5 | MEDIUM | Resolved | Brief line 3: "Correction, 2026-11-15 (coordinating session)" |
+| 6 | MEDIUM | Resolved (D2:22) | The sha `9d73e875…`, the pixel check, and "No judge has reviewed `7ee918e`" are all present. Path not named: R2-6 |
+| 7 | MEDIUM | Resolved (D2:31) | The command, the 8 paths and the frozen-file list match AGENTS.md:104 |
+| 8 | MEDIUM | Resolved (D2:36) | The set (3 UI files) and the command are given; reproduced above |
+| 9 | MEDIUM | Partly resolved (D2:65 now says so plainly) | R2-2 |
+| 10 | LOW | Resolved (D2:2 "on the UI theme PR (#36)"; D2:19 "#40's blind judges") | |
+| 11 | LOW | Resolved (D2:2) | Issue #40, bullet 5, names `docs/assets/ui-theme-*.png` |
+| 12 | LOW | Resolved (D2:11) | Matches the round-1 pixel sample: the card is all emerald |
+| 13 | LOW | **Open** (D2:12) | R2-4 |
+| 14 | LOW | Resolved (D2:18), with one wrong word | R2-5 |
+| 15 | LOW | Resolved (D2:20) | |
+| 16 | LOW | Resolved (D2:61-63: 28 issue guards, 4 probes, 2 controls) | `sab.txt`: 29 red and 5 green, as split |
+| 17 | LOW | Resolved (D2:66) | Run ids match `gh run list` |
+| 18 | LOW | Resolved at D2:15 ("no saved copy"). D2:39 has new wording | R2-7 |
+
+### Round-2 findings
+
+| # | Claim (quoted) | Invariant | Severity | Evidence or what is missing | Fix |
+|---|---|---|---|---|---|
+| R2-1 | D2:40 "Every new guard goes red under at least one defect" (12 rows), and D2:57 "The existing guards were also reached" (s04, s11, s13, s16, s27, s14, s15, s17, s20) | Numbers (the set is mislabelled) | MEDIUM | "New" here means new in the repair `a94f668` (r2 verdict line 70), not new in this PR. Of the 9 sabotages listed as hitting "existing" guards, 7 hit guards that **this PR adds** compared with `main`: s04 (`test_css_guards…:167`), s11 (`:355`), s13 (`test_all_hex_colours…:363`), s14 and s15 (`test_wcag_contrast…:371-372`), s16 (`test_tagline…:173`) and s17 (`test_ui_render.py:68`). This is shown by the test-name diff between `origin/main` and `a94f668`, and by `grep status-verified` on main's `test_ui_render.py`, which exits 1. Only s27 and the `:113` half of s20 hit a guard that was already on main (`origin/main:tests/test_ui_theme.py:109,114`). As written, a reviewer would read the tagline, WCAG, `@import` and 4/8-digit hex tests as already on main | Label the 12 rows "guards the repair `a94f668` added". Split D2:57-59 into "guards added earlier in this PR (`a31a101`): s04, s11, s13, s14, s15, s16, s17" and "guards already on `main`: s27, and s20 at `:113`" |
+| R2-2 | D2:59 "s14 and s15 (the two contrasts) and s17 and s20", within D2:61 "all 28 turned a test red" | I6 | MEDIUM | 4 of the 28 counted sabotages are named but not described. Their changes are in `sab.py:26-27,29,32`: `TEXT_SECONDARY = "#525252"`, `BORDER_FOCUS = "#404040"`, battlecard `[verified]` unwrapped, and `VERIFIED = "#3b82f6"`. No row says which command the sabotages ran (`sab.py:64-65`: the same 3 UI files, with `-p no:cacheprovider`). The driver stays in scratch (D2:65). So "28 of 28" cannot be re-run from the body as written | Describe s14, s15, s17 and s20 in one phrase each, and add "each sabotage ran the D2:36 command on its own copy" |
+| R2-3 | D2:7 "because the served config lacks the theme's `#000000`", and D2:47 "`test_ui_app.py:105`, the served config has the theme's `#000000`" | I1 | LOW | `tests/test_ui_app.py:103-105` reads `/ui/theme.css`, not `/ui/config`. `sab/s01-drop-theme.out:17-21` shows the assert on `theme_css.text` | "because `/ui/theme.css` lacks the theme's `#000000`" in both places |
+| R2-4 | D2:12 "PR #36 lists them as the old theme and the landing site." | I1 | LOW | `gh pr view 36 --json body`, line 15 (round 1, exit 0), lists only file names. "Old theme" and "landing site" describe the images, not PR #36's words | "PR #36 lists them among its screenshots; on main they show the pre-#34 theme and the landing site" |
+| R2-5 | D2:18 "only `HOME`, `PATH` and two Gradio switches" | I1 | LOW | `S/shot/take.sh:3`: the two are `GRADIO_ANALYTICS_ENABLED=False` and `HF_HUB_OFFLINE=1`. The second is a Hugging Face Hub setting, not a Gradio one | "a Gradio switch and a Hugging Face offline switch", or name both |
+| R2-6 | D2:22 "A claims check confirmed it two ways", and D2:30 "The claims check re-ran the suite on an archive of `7ee918e`" | I1 | LOW | Both are true (round 1 above: the sha match, the pixel sample, and 215 passed, 9 deselected with the worktree `.venv` linked), but the draft does not say where that check is recorded | Name `docs/superpowers/plans/verdicts/2026-11-15-gh40-body-claims.md` (untracked), as D2:21 does for the judges |
+| R2-7 | D2:39 "The relayed report names no sabotages per guard" | I1 | LOW | r2 verdict line 116: "The relayed report claims 5 valid sabotages and names none of them". The coordinator's paraphrase of the report: "five sabotages, one per guard, each turning one named test red". The literal claim holds, but it leaves out that the report claims five per-guard sabotages, so it reads as if Mel did none | "The relayed report claims five sabotages, one per guard, but names none, so they cannot be checked; the repair added 12 guards" |
+
+VERDICT: PASS
