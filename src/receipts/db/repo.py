@@ -1,9 +1,10 @@
-"""`SqlRunRepo`: the `RunRepo` protocol over the `runs` table.
+"""`SqlRunRepo`: the `RunRepo` protocol over the `runs` table, plus the run-to-user link.
 
-The engine is built lazily, on first use, from the injected URL or from
-`sqlalchemy_url(get_settings().database_url)` with `pool_pre_ping=True` (Neon suspends idle
-compute, ADR-0005). Constructing a repo never reads settings, so the api image boots with an
-empty environment; a repo used without a URL raises `MissingSettingError("DATABASE_URL")`.
+The engine is built lazily (`LazyEngine`, shared with `SqlUserRepo` in `receipts.db.users`), on
+first use, from the injected URL or from `sqlalchemy_url(get_settings().database_url)` with
+`pool_pre_ping=True` (Neon suspends idle compute, ADR-0005), or injected whole so two repos share
+one pool. Constructing a repo never reads settings, so the api image boots with an empty
+environment; a repo used without a URL raises `MissingSettingError("DATABASE_URL")`.
 
 Why a sync engine behind async methods: ADR-0006 expected `create_async_engine`, but
 SQLAlchemy's asyncio extension imports `greenlet`, which the frozen `uv.lock` does not carry
@@ -22,6 +23,21 @@ Placeholder rows: an event that arrives before `save_run` creates the row with `
 it. A later `StartedEvent` fills subject, rival and category in; `save_run` overwrites names,
 `created_at` and status. A first event that is not a `StartedEvent` leaves the names empty until
 one arrives.
+
+Run-to-user link (issue #41, ADR-0008), beyond the frozen protocol: `claim_run` sets `user_id` on
+a run's existing row, `list_runs_for(user_id)` and `count_runs_since(user_id, since)` scope to one
+user, or with `None` to the runs that belong to no user (signed-out passcode runs). `list_runs()`
+still returns every run. A placeholder row, and every run until it is claimed, has `user_id` NULL;
+`save_run`, `append_event` and `save_battlecard` never touch the column, so a claim survives the
+harness's later writes.
+
+Schema on the deployed database: `create_all` creates `users` but never adds a column to the
+existing Neon `runs` table, so on Postgres `create_schema` also sends `_POSTGRES_USER_ID_DDL`
+(`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`): additive, idempotent, and a no-op on
+a database `create_all` built fresh. SQLite gets the column from `create_all` (a fresh file or
+`:memory:`) and has no `IF NOT EXISTS` on `ADD COLUMN`, so it is not sent there. The `ALTER`
+takes a brief `ACCESS EXCLUSIVE` lock on `runs` once per process (`create_schema` runs on first
+real use); a nullable column with no default is a catalogue-only change on Postgres.
 """
 
 from __future__ import annotations
@@ -30,7 +46,7 @@ import asyncio
 import threading
 from datetime import datetime
 
-from sqlalchemy import Engine, StaticPool, create_engine, select
+from sqlalchemy import ColumnElement, Engine, StaticPool, create_engine, func, select, text
 from sqlalchemy.orm import Session
 
 from receipts.contracts import (
@@ -55,9 +71,26 @@ def make_engine(url: str) -> Engine:
     return create_engine(url, pool_pre_ping=True)
 
 
+# Postgres only, after `create_all` (which has created `users` by then). Both are idempotent.
+_POSTGRES_USER_ID_DDL = (
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS user_id VARCHAR(64) REFERENCES users(id)",
+    "CREATE INDEX IF NOT EXISTS ix_runs_user_id ON runs (user_id)",
+)
+
+
+def _create_schema(engine: Engine) -> None:
+    Base.metadata.create_all(engine)
+    if engine.dialect.name != "postgresql":
+        return
+    with engine.begin() as conn:
+        for statement in _POSTGRES_USER_ID_DDL:
+            conn.execute(text(statement))
+
+
 async def create_schema(engine: Engine) -> None:
-    """Create the `runs` table if it is missing. Tests and W2 call this; nothing runs at import."""
-    await asyncio.to_thread(Base.metadata.create_all, engine)
+    """Create `runs` and `users` if missing, and add `runs.user_id` to an existing Postgres
+    `runs` table (module docstring). Safe to run repeatedly; nothing runs at import."""
+    await asyncio.to_thread(_create_schema, engine)
 
 
 def _status(value: str) -> RunStatus:
@@ -108,6 +141,11 @@ def _apply_event(row: RunRow, event: RunEvent) -> None:
         row.status = "error"
 
 
+def _owned_by(user_id: str | None) -> ColumnElement[bool]:
+    """`user_id IS NULL` for `None` (runs that belong to no user), else that user's runs."""
+    return RunRow.user_id.is_(None) if user_id is None else RunRow.user_id == user_id
+
+
 def _locked_row(session: Session, run_id: RunId, created_at: datetime) -> RunRow:
     """The run's row, locked for update, created as a placeholder when it does not exist yet."""
     row = session.get(RunRow, run_id, with_for_update=True)
@@ -117,8 +155,10 @@ def _locked_row(session: Session, run_id: RunId, created_at: datetime) -> RunRow
     return row
 
 
-class SqlRunRepo:
-    """See the module docstring. `url=None` defers to `DATABASE_URL` on first use."""
+class LazyEngine:
+    """The engine both repos share the pattern of. `url=None` defers to `DATABASE_URL` on first
+    use; an injected `engine` is used as is, so two repos can share one pool. `dispose()` disposes
+    the engine either way: whoever shares one disposes it once."""
 
     def __init__(self, url: str | None = None, *, engine: Engine | None = None) -> None:
         self._url = url
@@ -148,6 +188,10 @@ class SqlRunRepo:
             engine, self._engine = self._engine, None
         if engine is not None:
             await asyncio.to_thread(engine.dispose)
+
+
+class SqlRunRepo(LazyEngine):
+    """See the module docstring. `url=None` defers to `DATABASE_URL` on first use."""
 
     # --- RunRepo -----------------------------------------------------------------------
 
@@ -196,9 +240,49 @@ class SqlRunRepo:
         return await asyncio.to_thread(self._list_runs)
 
     def _list_runs(self) -> list[RunSummary]:
+        return self._summaries()
+
+    def _summaries(self, *where: ColumnElement[bool]) -> list[RunSummary]:
+        query = select(RunRow).where(*where).order_by(RunRow.created_at.desc())
         with self._session() as session:
-            rows = session.scalars(select(RunRow).order_by(RunRow.created_at.desc())).all()
+            rows = session.scalars(query).all()
         return [_summary(row) for row in rows]
+
+    # --- beyond the protocol: the run-to-user link (issue #41) -----------------------------
+
+    async def claim_run(self, run_id: RunId, user_id: str) -> None:
+        """Link an existing run to the user who started it.
+
+        Raises `LookupError` when the run has no row, and creates none: `InProcessRunService.start`
+        writes the row before it returns the id, so a missing row is a wiring bug, and a silent
+        no-op would leave a signed-in user's run counted and listed as a signed-out one.
+        """
+        await asyncio.to_thread(self._claim_run, run_id, user_id)
+
+    def _claim_run(self, run_id: RunId, user_id: str) -> None:
+        with self._session() as session, session.begin():
+            row = session.get(RunRow, run_id, with_for_update=True)
+            if row is None:
+                raise LookupError(f"no run to claim: {run_id}")
+            row.user_id = user_id
+
+    async def list_runs_for(self, user_id: str | None) -> list[RunSummary]:
+        """That user's runs, or with `None` the runs that belong to no user; newest first."""
+        return await asyncio.to_thread(self._summaries, _owned_by(user_id))
+
+    async def count_runs_since(self, user_id: str | None, since: datetime) -> int:
+        """Runs with `created_at >= since` for that user (or, with `None`, for no user).
+        `since` must be timezone-aware, like every stored time."""
+        return await asyncio.to_thread(self._count_runs_since, user_id, since)
+
+    def _count_runs_since(self, user_id: str | None, since: datetime) -> int:
+        query = (
+            select(func.count())
+            .select_from(RunRow)
+            .where(_owned_by(user_id), RunRow.created_at >= since)
+        )
+        with self._session() as session:
+            return session.execute(query).scalar_one()
 
     # --- beyond the protocol: used by tests, the integration clean-up and W2 ---------------
 

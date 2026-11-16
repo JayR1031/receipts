@@ -203,7 +203,7 @@ def test_run_user_id_naming_no_user_is_rejected(engine: Engine) -> None:
 
 
 async def test_claim_run_round_trip_writes_user_id_on_neon(engine: Engine) -> None:
-    """The column exists on the deployed table: `claim_run` writes it and the scoped reads see it."""
+    """The column exists on the deployed table: `claim_run` writes it, the scoped reads see it."""
     sub, run_id = _new_sub(), _new_id()
     since = datetime.now(tz=UTC)
     runs, users = SqlRunRepo(engine=engine), SqlUserRepo(engine=engine)
