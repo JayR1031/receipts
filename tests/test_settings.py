@@ -23,6 +23,11 @@ NAMES = (
     "DATABASE_URL",
     "DEMO_PASSCODE",
     "MAX_CONCURRENT_SPECIALISTS",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "SESSION_SECRET",
+    "RUNS_PER_USER_PER_DAY",
+    "SIGNED_OUT_RUNS_PER_DAY",
 )
 
 
@@ -40,6 +45,11 @@ def test_settings_construct_with_nothing_set(empty_env: None) -> None:
     assert settings.database_url is None
     assert settings.demo_passcode is None
     assert settings.max_concurrent_specialists == 4
+    assert settings.google_client_id is None
+    assert settings.google_client_secret is None
+    assert settings.session_secret is None
+    assert settings.runs_per_user_per_day == 5
+    assert settings.signed_out_runs_per_day == 20
 
 
 def test_get_settings_is_lazy_and_cached(empty_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
