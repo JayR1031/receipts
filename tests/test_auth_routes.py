@@ -26,9 +26,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from http.cookies import Morsel, SimpleCookie
 from pathlib import Path
+from typing import Protocol
 from urllib.parse import parse_qsl, urlsplit
 
-import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -92,6 +92,24 @@ LOCAL_BASE = "http://localhost:8000"
 # --- harness -----------------------------------------------------------------------------
 
 
+class Headers(Protocol):
+    def __getitem__(self, key: str) -> str: ...
+    def __contains__(self, key: object) -> bool: ...
+    def get_list(self, key: str, split_commas: bool = False) -> list[str]: ...
+
+
+class Reply(Protocol):
+    """What these tests read from a `TestClient` response (httpx's or httpx2's)."""
+
+    @property
+    def status_code(self) -> int: ...
+    @property
+    def text(self) -> str: ...
+    @property
+    def headers(self) -> Headers: ...
+    def json(self) -> object: ...
+
+
 @dataclass
 class Clock:
     now: datetime = NOW
@@ -100,7 +118,7 @@ class Clock:
         return self.now
 
 
-def set_cookies(response: httpx.Response) -> dict[str, Morsel[str]]:
+def set_cookies(response: Reply) -> dict[str, Morsel[str]]:
     """Every `Set-Cookie` header of `response`, parsed, by cookie name."""
     parsed: dict[str, Morsel[str]] = {}
     for header in response.headers.get_list("set-cookie"):
@@ -121,13 +139,13 @@ class Browser:
     client: TestClient
     cookies: dict[str, str] = field(default_factory=dict[str, str])
 
-    def get(self, url: str, params: dict[str, str] | None = None) -> httpx.Response:
+    def get(self, url: str, params: dict[str, str] | None = None) -> Reply:
         return self._send("GET", url, params)
 
-    def post(self, url: str) -> httpx.Response:
+    def post(self, url: str) -> Reply:
         return self._send("POST", url, None)
 
-    def _send(self, method: str, url: str, params: dict[str, str] | None) -> httpx.Response:
+    def _send(self, method: str, url: str, params: dict[str, str] | None) -> Reply:
         headers = {"Cookie": "; ".join(f"{k}={v}" for k, v in self.cookies.items())}
         response = self.client.request(
             method, url, params=params, headers=headers if self.cookies else None
@@ -219,15 +237,15 @@ def login(h: Harness, *, now: datetime = NOW) -> OAuthRoundTrip:
     return attempt
 
 
-def callback(h: Harness, attempt: OAuthRoundTrip, claims: IdTokenClaims) -> httpx.Response:
+def callback(h: Harness, attempt: OAuthRoundTrip, claims: IdTokenClaims) -> Reply:
     """Register `claims` for `CODE`, then come back from Google with this attempt's state."""
     h.fake.claims_by_code[CODE] = claims
     return h.browser.get("/auth/callback", params={"code": CODE, "state": attempt.state})
 
 
-def sign_in(h: Harness, **claims: str) -> httpx.Response:
+def sign_in(h: Harness) -> Reply:
     attempt = login(h)
-    return callback(h, attempt, fake_claims(nonce=attempt.nonce, aud=CLIENT_ID, **claims))
+    return callback(h, attempt, fake_claims(nonce=attempt.nonce, aud=CLIENT_ID))
 
 
 def session_of(h: Harness) -> SessionUser | None:
@@ -692,7 +710,7 @@ def test_an_injected_provider_is_used_as_is(h: Harness) -> None:
     assert routes.get_identity_provider(_request(h.app), config) is h.fake
 
 
-def _sign_in_through(browser: Browser, fake: FakeIdentityProvider, now: datetime) -> httpx.Response:
+def _sign_in_through(browser: Browser, fake: FakeIdentityProvider, now: datetime) -> Reply:
     """Log in and come back from Google on an app built without the `h` fixture."""
     browser.get("/auth/login")
     attempt = verify_round_trip(
