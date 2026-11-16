@@ -1072,10 +1072,11 @@ async def test_local_demo_starts_without_a_passcode_or_a_key_signed_in_or_out(
         assert USER_SUBJECT not in str(events)  # the demo's own names, as before issue #41
 
 
-async def test_demo_mode_history_is_the_service_list_and_the_account_is_zeros(
+async def test_demo_mode_history_is_the_service_list_and_the_account_is_0_of_the_cap(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Even with sign-in configured: the demo stores nothing, so there is nothing to count."""
+    """Even with sign-in configured: the demo stores nothing, so the count is 0, and the line's
+    denominator is `SIGNED_OUT_RUNS_PER_DAY` (default 20), never `0 of 0` (Rule Zero)."""
     _no_demo_delay(monkeypatch)
     _configure_sign_in(monkeypatch, tmp_path)
     app = create_app()
@@ -1083,7 +1084,7 @@ async def test_demo_mode_history_is_the_service_list_and_the_account_is_zeros(
     _ = [event async for event in app.state.run_service.events(run_id)]
     assert [s.run_id for s in await app.state.gate.history(None)] == [run_id]
     assert await app.state.gate.account(None) == AccountStatus(
-        email=None, runs_used=0, runs_limit=0, sign_in_available=False
+        email=None, runs_used=0, runs_limit=20, sign_in_available=False
     )
 
 
@@ -1250,3 +1251,23 @@ async def test_half_configured_a_session_is_signed_out_and_needs_the_passcode(
     run_id = await app.state.gate.start(USER_REQUEST, PASSCODE, session)
     assert [s.run_id for s in await app.state.gate.history(None)] == [run_id]
     assert getattr(app.state, "user_repo", None) is None
+
+
+@pytest.mark.parametrize("mode", ["local-demo", "half-configured"])
+async def test_demo_account_line_is_0_of_the_signed_out_cap_signed_in_or_out(
+    monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    """Rule Zero: the denominator is the `SIGNED_OUT_RUNS_PER_DAY` setting (7 here, so not a
+    hard-coded 20), never `0 of 0`; the count stays 0 after a demo run, which is not stored. With
+    no users table to read, a session reads as signed out, as `start` treats it."""
+    if mode == "half-configured":
+        _configure_partial(monkeypatch)
+    monkeypatch.setenv("SIGNED_OUT_RUNS_PER_DAY", "7")
+    get_settings.cache_clear()
+    _no_demo_delay(monkeypatch)
+    app = create_app()
+    await app.state.gate.start(USER_REQUEST, PASSCODE if mode == "half-configured" else "", None)
+    session = SessionUser(user_id="user-demo-0001", expires_at=T_NOW + timedelta(days=1))
+    expected = AccountStatus(email=None, runs_used=0, runs_limit=7, sign_in_available=False)
+    for who in (None, session):
+        assert await app.state.gate.account(who) == expected
