@@ -132,7 +132,7 @@ deps = ["fuzz-port-repair"]
 parallel_safe = false
 model = "opus"
 exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && uv run python scripts/verify_fuzz/run_baseline.py --kinds quote,control && { uv run python scripts/verify_fuzz/run_baseline.py; test $? -eq 1; }"
-state = "running"
+state = "judging"
 
 [[task]]
 id = "token"
@@ -236,3 +236,4 @@ The brief was amended the same minute to match (its "File scope", "Amended 2026-
 | 2026-11-18 07:40 | `dedupe-docstrings` → `merged`: judge PASS, `docs/superpowers/plans/verdicts/2026-11-18-gh45-dedupe-docstrings.md` (1 LOW, accepted without action: rule and exception are adjacent sentences, as ADR-0007 line 18). Merged as `040b8b7`. On `040b8b7`: `bin/jig` exit 0; `run_baseline.py` exit 0, 20 of 20 `ok`; `pytest -q -m "not integration" -rs` with the seven variables unset: 692 passed, 14 deselected (marker `integration`), 0 skipped, exit 0. |
 | 2026-11-18 07:41 | **Wave A complete** (`fuzz-port` blocked → `fuzz-port-repair` merged; `dedupe` merged; `dedupe-docstrings` merged). Coordinator news recorded in the `records` note: PR #53 merged as `3b2673c`; the README `$20k` sentence and the LinkedIn post. Nothing running. Next: `bin/plan-check <this file> --ready` → `fuzz-claims`. Orchestrator hands back to "main" for the end-of-wave report. |
 | 2026-11-18 07:50 | Resumed on the coordinating session's instruction ("main" is reachable; `records` waits for "main" to confirm the README wording for the LinkedIn sentence). `fuzz-claims` → `running`: worktree `.worktrees/gh45-fuzz-claims`, branch `jay/gh-45-fuzz-claims` from `856e371`, implementer on `opus`. |
+| 2026-11-18 08:20 | `fuzz-claims` → `judging`: head `1ab8605` (3 files: `expected.txt`, new `fuzz_claim_values.py`, `run_baseline.py`; six scripts and `pinned.sha256` unchanged, `git diff --quiet` exit 0). Orchestrator re-run: `bin/jig` exit 0; `--kinds quote,control` exit 0; full run exit 1 with 10 `ROSE` lines, 10 of 10 claim-shape. Red-first (seed 45, n = 300 per kind): WRONG verified count 300, unsigned 300, suffix 300, trailing 300, leading_decimal 300, free 147, control 300 (by design), each of 300; TRUE rejected unsigned 104, suffix 138, trailing 82, leading_decimal 55, others 0, each of 300. Implementer risk note for `unsigned`/`counts-free`: read literally, assumption 1 could make `$ 25 per seat` a 25-seat count ("per" as the one word between); the generator avoids unit words in price-claim tails, so this interaction is unmeasured. |
