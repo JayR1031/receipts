@@ -649,8 +649,8 @@ def test_a_quotes_unsigned_price_keeps_its_own_number_in_the_claim_rule(
 ) -> None:
     # The `unsigned` verdict's MEDIUM 1, brief assumption 4: the quote's signed readings are added
     # to its own tokens, not put in their place, so the quote's `25` and `2,500` still back a
-    # claim's `25.0`, `2,500` or count `25 seats` (assumption 2: a count compares its value). The
-    # all three pass on the `unsigned` head, the third because `25` was not yet a count; all three
+    # claim's `25.0`, `2,500` or count `25 seats` (assumption 2: a count compares its value).
+    # All three pass on the `unsigned` head, the third because `25` was not yet a count; all three
     # turn red if `_quote_values` keeps only the signed readings.
     url = "https://tokens.example/"
     out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, f"{quote}."), [])
