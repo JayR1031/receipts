@@ -1,0 +1,25 @@
+# Expected counts for scripts/verify_fuzz/run_baseline.py, measured on origin/main 949741f.
+# One line per count: group | name | direction | at most | denominator | set the count is taken over
+# direction: open = misquotes or wrong prices verified (fail-open); closed = true quotes
+# rejected for their numbers (fail-closed). A count above "at most" fails run_baseline.py.
+# The denominator is the size of the set; run_baseline.py prints the observed one and notes a change.
+quote | place_all.open | open | 0 | 5998 | fuzz_place_all.py 2 6000: misquotes verified, of misquotes tried
+quote | place_all.closed | closed | 195 | 5998 | fuzz_place_all.py 2 6000: true quotes rejected for numbers, of legit quotes tried
+quote | dense.closed | closed | 35 | 2931 | fuzz_dense.py 9 8000: true quotes rejected for numbers, of true quotes tried
+quote | add.s51.open | open | 1 | 1091 | fuzz_add.py 51 6000: add-a-word misquotes verified, of those scoring at least 90
+quote | add.s52.open | open | 1 | 1048 | fuzz_add.py 52 6000: add-a-word misquotes verified, of those scoring at least 90
+quote | add.s53.open | open | 0 | 1539 | fuzz_add.py 53 6000 all 1: add-a-word misquotes verified, of those scoring at least 90
+quote | add.open.total | open | 2 | 3678 | fuzz_add.py seeds 51, 52, 53: add-a-word misquotes verified, of those scoring at least 90 (10,994 generated)
+quote | add.s51.closed | closed | 0 | 2331 | fuzz_add.py 51 6000: true quotes rejected for numbers, of true quotes tried
+quote | add.s52.closed | closed | 1 | 2264 | fuzz_add.py 52 6000: true quotes rejected for numbers, of true quotes tried
+quote | add.s53.closed | closed | 1 | 2346 | fuzz_add.py 53 6000 all 1: true quotes rejected for numbers, of true quotes tried
+quote | add.closed.total | closed | 2 | 6941 | fuzz_add.py seeds 51, 52, 53: true quotes rejected for numbers, of true quotes tried
+quote | place2.s7 | open | 1 | 40000 | fuzz_place2.py 7 40000: quotes verified with a wrong slot, of quotes generated
+quote | place2.s11 | open | 9 | 40000 | fuzz_place2.py 11 40000: quotes verified with a wrong slot, of quotes generated
+quote | place2.s12 | open | 5 | 40000 | fuzz_place2.py 12 40000: quotes verified with a wrong slot, of quotes generated
+quote | place2.s13 | open | 7 | 40000 | fuzz_place2.py 13 40000: quotes verified with a wrong slot, of quotes generated
+quote | place2.total | open | 22 | 160000 | fuzz_place2.py seeds 7, 11, 12, 13: quotes verified with a wrong slot, of quotes generated
+quote | skip.s5 | open | 7 | 3767 | fuzz_skip.py 5 6000: next-plan-price misquotes verified, of misquotes tried
+quote | skip.s6 | open | 15 | 3672 | fuzz_skip.py 6 6000: next-plan-price misquotes verified, of misquotes tried
+quote | skip.total | open | 22 | 7439 | fuzz_skip.py seeds 5, 6: next-plan-price misquotes verified, of misquotes tried
+quote | spread.open | open | 0 | 6000 | fuzz_spread.py 1 6000: spread misquotes verified, of misquotes tried
