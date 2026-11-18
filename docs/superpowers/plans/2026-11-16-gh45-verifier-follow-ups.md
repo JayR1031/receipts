@@ -192,3 +192,11 @@ The brief was amended the same minute to match (its "File scope", "Amended 2026-
 1. **PR #53 and the verifier text.** #53 moves the README's verifier rules, limits list and examples to `docs/verifier.md`, which this brief does not allow. Default **(A)**: #45 lands first; #53 then merges `origin/main` and moves the updated text, and its "issue #45 tracks them" lines are dropped in that merge. **(B)**: #53 lands first, and `records`' scope adds `docs/verifier.md` (the same edits, in the section's new home) and the brief's Allowed list is amended to match. Which?
 2. **The two README "Demo: Mel vs Warp" bullets** (`README.md:533-534`) will cite a closed issue, and the duplicates bullet will overstate the gap (only cross-domain duplicates remain). Default: add those two lines to `records`' scope, rewritten as an owner-accepted limit and a cross-domain-only limit. Alternative: leave them and note the staleness in the PR. Which?
 3. **Intra-branch task merges.** For #41 the owner delegated merging each task branch into the integration branch after its judge PASS. That is not pre-approved for #45. Delegate it again (the orchestrator merges, never into `main`, never force-pushes), or does each of the seven PASSes wait for the owner?
+
+## Dispatch log
+
+| Time (UTC) | Event |
+|---|---|
+| 2026-11-18 06:17 | Integration branch `jay/gh-45-verifier-follow-ups` created at `.worktrees/gh45` from `origin/main` `949741f`; brief and plan committed as `4b2e79a`. `origin/main` re-read at 06:16:48: still `949741f`; PR #53 open. |
+| 2026-11-18 06:18 | `fuzz-port` → `running`: worktree `.worktrees/gh45-fuzz-port`, branch `jay/gh-45-fuzz-port` from `4b2e79a`, implementer on `sonnet`. |
+| 2026-11-18 06:18 | `dedupe` → `running`: worktree `.worktrees/gh45-dedupe`, branch `jay/gh-45-dedupe` from `4b2e79a`, implementer on `opus`. |
