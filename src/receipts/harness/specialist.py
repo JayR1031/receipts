@@ -15,7 +15,10 @@ Repairs (GitHub issue #39): with a `repair_factory`, each parsed claim the Verif
 verify goes to a `ClaimRepairer` (Mellea in production, `repair.py`) before any claim event, at
 most `MAX_REPAIRS` model calls per claim and only while the pack's `timeout_s`, counted from the
 start of `run`, lasts. The `claim` event then carries the claim the Verifier judges: the repaired
-one if a repair passed, else the agent's own. With no factory (the default) nothing changes.
+one if a repair passed, else the agent's own. A repair whose receipt is identical to another of
+this specialist's claims' receipts is not accepted (GitHub issue #45), so one piece of evidence
+cannot back a second claim through a repair; claims the agent wrote on one receipt all count.
+With no factory (the default) nothing changes.
 
 Events are yielded after the agent finishes, in tool-call order: the tools run synchronously
 inside the agent loop, so recording into a `ToolLog` and replaying is simpler than threading an
@@ -253,6 +256,55 @@ def _unverified(claim: Claim) -> Claim:
     return claim.model_copy(update={"verified": False, "verify_method": None, "verify_note": None})
 
 
+def _same_receipt(a: QuoteReceipt | SearchReceipt, b: QuoteReceipt | SearchReceipt) -> bool:
+    """Same kind and equal fields, `ts` ignored: it is copied from the logged search row.
+
+    Exact strings, not the Verifier's `normalize`, so quotes that differ only in case or spacing
+    are different receipts here (a recorded limit, GitHub issue #45).
+    """
+    if isinstance(a, QuoteReceipt):
+        return isinstance(b, QuoteReceipt) and (a.url, a.quote) == (b.url, b.quote)
+    return isinstance(b, SearchReceipt) and (a.query, a.rank, a.url) == (b.query, b.rank, b.url)
+
+
+def _copies_another(
+    repair: Claim,
+    index: int,
+    claims: Sequence[Claim],
+    receipts: Sequence[QuoteReceipt | SearchReceipt],
+) -> bool:
+    """`repair` (for `claims[index]`) cites another claim's receipt as it stands in `receipts`.
+
+    Keeping its own claim's original receipt is never a copy, even when the agent wrote that
+    receipt on another claim too: only a repair can add a duplicate.
+    """
+    if _same_receipt(repair.receipt, claims[index].receipt):
+        return False
+    return any(_same_receipt(repair.receipt, r) for j, r in enumerate(receipts) if j != index)
+
+
+def _accepted_repairs(
+    claims: Sequence[Claim], failing: Sequence[int], fixed: Sequence[Claim | None]
+) -> list[Claim | None]:
+    """`fixed` with each repair that copies another claim's receipt replaced by `None`.
+
+    A refused copy is treated like a repair that found nothing, so its original goes to the
+    Verifier unchanged (GitHub issue #45). Repairs are settled in the order of `failing`, the
+    claims' order; each is compared with every other claim's receipt as it stands at that point,
+    the agent's original or an earlier claim's accepted repair.
+    """
+    receipts = [claim.receipt for claim in claims]
+    accepted: list[Claim | None] = []
+    for index, repair in zip(failing, fixed, strict=True):
+        kept = (
+            None if repair is None or _copies_another(repair, index, claims, receipts) else repair
+        )
+        if kept is not None:
+            receipts[index] = kept.receipt
+        accepted.append(kept)
+    return accepted
+
+
 def _merge(
     claims: Sequence[Claim], failing: Sequence[int], fixed: Sequence[Claim | None]
 ) -> list[Claim]:
@@ -349,8 +401,10 @@ class SpecialistRunner:
 
         Order is kept. With no repair factory, no failing claim, or no time left in the pack's
         budget, the claims come back as they are. A repaired claim has its verify fields cleared,
-        so whatever a repairer returns, only `self._verify` in `_claim_events` can verify it.
-        Logs one INFO line per domain: `claim repair: <domain> failing=N repaired=M`.
+        so whatever a repairer returns, only `self._verify` in `_claim_events` can verify it. A
+        repair that copies another claim's receipt is not accepted (`_accepted_repairs`).
+        Logs one INFO line per domain: `claim repair: <domain> failing=N repaired=M`, where M
+        counts accepted repairs only.
         """
         if self._repair_factory is None:
             return list(claims)
@@ -366,6 +420,7 @@ class SpecialistRunner:
             repairer, now = self._repair_factory(pack), self._clock()
             requests = [self._repair_request(claims[i], notes[i], pack, log, now) for i in failing]
             fixed = await asyncio.gather(*(_bounded(repairer, r, remaining) for r in requests))
+        fixed = _accepted_repairs(claims, failing, fixed)
         repaired = sum(claim is not None for claim in fixed)
         logger.info("claim repair: %s failing=%d repaired=%d", pack.id, len(failing), repaired)
         return _merge(claims, failing, fixed)
