@@ -80,7 +80,7 @@ deps = []
 parallel_safe = true
 model = "sonnet"
 exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && uv run python scripts/verify_fuzz/run_baseline.py"
-state = "judging"
+state = "blocked"
 
 [[task]]
 id = "dedupe"
@@ -98,12 +98,24 @@ exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL
 state = "judging"
 
 [[task]]
+id = "fuzz-port-repair"
+title = "fuzz-port repair 1 of 3 (judge FAIL, verdicts/2026-11-18-gh45-fuzz-port.md; same branch jay/gh-45-fuzz-port): run_baseline.py exits 1 when what the six PR #35 scripts generate changes (pin each script's SHA-256; fail a changed denominator the rules cannot move), so sabotage row 10 turns it red; empty --kinds exits 2; evidence of the red runs and the twelve diff runs in the report"
+scope = [
+  "scripts/verify_fuzz/**",
+]
+deps = []
+parallel_safe = false
+model = "sonnet"
+exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && uv run python scripts/verify_fuzz/run_baseline.py"
+state = "running"
+
+[[task]]
 id = "fuzz-claims"
 title = "fuzz_claim_values.py (seven kinds, TRUE and WRONG claims per kind on quotes that are on their page), wired into run_baseline.py with --kinds; expected.txt claim-shape lines; red-first run on 949741f rules exits 1 on the claim shapes only"
 scope = [
   "scripts/verify_fuzz/**",
 ]
-deps = ["fuzz-port"]
+deps = ["fuzz-port-repair"]
 parallel_safe = false
 model = "opus"
 exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && uv run python scripts/verify_fuzz/run_baseline.py --kinds quote,control && { uv run python scripts/verify_fuzz/run_baseline.py; test $? -eq 1; }"
@@ -202,3 +214,4 @@ The brief was amended the same minute to match (its "File scope", "Amended 2026-
 | 2026-11-18 06:18 | `dedupe` → `running`: worktree `.worktrees/gh45-dedupe`, branch `jay/gh-45-dedupe` from `4b2e79a`, implementer on `opus`. |
 | 2026-11-18 06:25 | `fuzz-port` → `judging`: head `a9d2b82` on `jay/gh-45-fuzz-port`. Exit command re-run by the orchestrator: `bin/jig` format, lint, types, tests all `ok`; `run_baseline.py` exit 0, 20 of 20 comparison lines `ok`, 0 `ROSE`, 0 `FELL`. Implementer note: a `PRICES` value rename (sabotage row 10) changes the durable-vs-committed diff but not `run_baseline.py`'s counts; the judge checks row 10 itself. |
 | 2026-11-18 06:33 | `dedupe` → `judging`: head `a38a187` on `jay/gh-45-dedupe`. Exit command re-run by the orchestrator: `bin/jig` exit 0 (format, lint, types, tests `ok`); `tests/test_harness_repair.py` 18 passed, exit 0. Two implementer interpretations put to the judge: (1) the existing test's first assertion list changes its first element `GOOD_QUOTE` → `MONTHLY_QUOTE`, a consequence of the setup change; (2) a repair that keeps its own receipt is accepted even when another agent-written claim cites the same receipt (assumption 11 read literally). |
+| 2026-11-18 06:45 | `fuzz-port` → `blocked`: judge FAIL, `docs/superpowers/plans/verdicts/2026-11-18-gh45-fuzz-port.md` (HIGH 1: `run_baseline.py` exit 0 on two `PRICES` changes in `fuzz_place_all.py`, one shrinking the sample from 5,998 to 5,984; MEDIUM 2: no recorded red run; LOW 3: `--kinds ,` exits 0). Items 1 to 5 and 7 passed, including all 12 durable-vs-committed diffs empty. Re-planned as `fuzz-port-repair` (repair 1 of 3), `running` on the same branch and worktree; `fuzz-claims` now depends on it. |
