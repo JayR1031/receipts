@@ -2,6 +2,10 @@
 
 Usage: run_baseline.py [--kinds k1,k2,...]   (default: every group)
 
+Before running anything it checks the SHA-256 of the six PR #35 scripts against pinned.sha256; a
+mismatch or a missing pin exits 1. A denominator that no rule can move (FIXED) also fails when it
+changes; the other denominators only print a note.
+
 Exit 0 when no fail-open count (wrong prices verified) and no fail-closed count (true quotes
 rejected) is above its "at most" value in expected.txt, 1 when one is or one is missing, 2 for an
 unknown kind. A count that fell prints FELL and does not fail.
@@ -12,6 +16,7 @@ register it in GROUPS under its kind; add its lines to expected.txt under that k
 
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
 import sys
@@ -22,6 +27,12 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 EXPECTED = HERE / "expected.txt"
+PINNED = HERE / "pinned.sha256"
+# Denominators fixed before any receipts.verify call: fuzz_place2.py's step() counts one try per
+# iteration (tally.tried, line 127) and fuzz_spread.py's main() counts one per iteration (line 47).
+FIXED = frozenset(
+    {"place2.s7", "place2.s11", "place2.s12", "place2.s13", "place2.total"} | {"spread.open"}
+)
 
 Obs = tuple[str, int, int]  # name, observed count, denominator
 GroupResult = tuple[list[str], list[Obs]]  # summary lines as printed, observations
@@ -47,6 +58,21 @@ class Limit:
     direction: str
     at_most: int
     denominator: int
+
+
+def check_pins(path: Path) -> list[str]:
+    """Return one message per pinned script whose SHA-256 differs, or per unreadable pin."""
+    bad = []
+    if not path.is_file():
+        return [f"{path.name}: pin file is missing"]
+    pins = [ln.split() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    for digest, name in pins:
+        script = HERE / name
+        if not script.is_file():
+            bad.append(f"{name}: pinned script is missing")
+        elif hashlib.sha256(script.read_bytes()).hexdigest() != digest:
+            bad.append(f"{name}: SHA-256 differs from pinned.sha256 (the generation changed)")
+    return bad
 
 
 def run_script(argv: tuple[str, ...]) -> str:
@@ -167,9 +193,12 @@ def compare(obs: list[Obs], limits: dict[str, Limit]) -> tuple[list[str], bool]:
             failed = True
             continue
         word = status(count, limit)
-        note = "" if den == limit.denominator else f" (denominator was {limit.denominator})"
+        moved = den != limit.denominator
+        note = f" (denominator was {limit.denominator})" if moved else ""
+        fixed = moved and name in FIXED
+        note += " — FIXED DENOMINATOR CHANGED" if fixed else ""
         lines.append(f"{name}: {count} of {den}, expected at most {limit.at_most} — {word}{note}")
-        failed = failed or word == "ROSE"
+        failed = failed or word == "ROSE" or fixed
     return lines, failed
 
 
@@ -178,17 +207,29 @@ def unobserved(kinds: list[str], obs: list[Obs], limits: dict[str, Limit]) -> li
     return [n for n, lim in limits.items() if lim.group in kinds and n not in seen]
 
 
-def main(argv: list[str]) -> int:
+def parse_kinds(argv: list[str]) -> list[str] | None:
+    """The kinds to run, or None after printing why the arguments are unusable (exit 2)."""
     kinds = list(GROUPS)
     if argv[:1] == ["--kinds"] and len(argv) == 2:
         kinds = [k for k in argv[1].split(",") if k]
     elif argv:
         print("usage: run_baseline.py [--kinds k1,k2,...]", file=sys.stderr)
-        return 2
+        return None
     unknown = [k for k in kinds if k not in GROUPS]
-    if unknown:
-        print(f"unknown kind(s) {unknown}; known: {sorted(GROUPS)}", file=sys.stderr)
+    if unknown or not kinds:
+        print(f"unknown or empty kinds {unknown}; known: {sorted(GROUPS)}", file=sys.stderr)
+        return None
+    return kinds
+
+
+def main(argv: list[str]) -> int:
+    kinds = parse_kinds(argv)
+    if kinds is None:
         return 2
+    pin_errors = check_pins(PINNED)
+    if pin_errors:
+        print("\n".join(f"PIN MISMATCH {e}" for e in pin_errors))
+        return 1
     limits = read_expected(EXPECTED)
     lines: list[str] = []
     obs: list[Obs] = []
