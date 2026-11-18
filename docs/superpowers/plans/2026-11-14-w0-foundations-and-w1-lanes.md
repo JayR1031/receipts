@@ -1,6 +1,6 @@
 # Plan: Wave 0 foundations, then the W1 lanes in parallel
 
-Brief: `docs/superpowers/briefs/2026-11-14-w0-foundations-and-w1-lanes.md`. Spec: `docs/superpowers/specs/2026-11-14-receipts-design.md`. Lane globs: `AGENTS.md` section 9. Written 2026-11-14 (hackathon H0–1); nothing dispatched yet.
+Brief: `docs/superpowers/briefs/2026-11-14-w0-foundations-and-w1-lanes.md`. Spec: `docs/superpowers/specs/2026-11-14-receipts-design.md`. Lane globs: `AGENTS.md` section 9. Written 2026-11-14 (hackathon H0–1). Final state (recorded 2026-11-18): W0 and lanes L1 to L5 merged; W2 merged in PR #29 (2026-11-15 03:00 UTC); W3 shipped through PRs #50 and #51. The `w2` and `w3` rows below stop at `judging` and `planned`, as the coordinator last wrote them.
 
 ## Shape
 
