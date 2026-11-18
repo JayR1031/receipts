@@ -650,8 +650,8 @@ def test_a_quotes_unsigned_price_keeps_its_own_number_in_the_claim_rule(
     # The `unsigned` verdict's MEDIUM 1, brief assumption 4: the quote's signed readings are added
     # to its own tokens, not put in their place, so the quote's `25` and `2,500` still back a
     # claim's `25.0`, `2,500` or count `25 seats` (assumption 2: a count compares its value). The
-    # first two pass on the `unsigned` head by design; all three turn red if `_quote_values` keeps
-    # only the signed readings.
+    # all three pass on the `unsigned` head, the third because `25` was not yet a count; all three
+    # turn red if `_quote_values` keeps only the signed readings.
     url = "https://tokens.example/"
     out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, f"{quote}."), [])
     assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
@@ -785,6 +785,8 @@ def test_a_number_read_as_a_signed_price_is_not_also_a_count(
         ("Starter is not really free", False),
         ("Start a free trial", False),
         ("Starter has a free-trial period", False),
+        ("Free trials on every plan", False),
+        ("Start free trials today", False),
         ("Starter is free", True),
         ("Starter: no card required, free for small teams", True),
         ("Starter has a free tier", True),
@@ -805,6 +807,8 @@ def test_a_number_read_as_a_signed_price_is_not_also_a_count(
         "not-two-words-before",
         "trial",
         "trial-hyphen",
+        "trials-plural-first-word",
+        "trials-plural-mid-quote",
         "plain-free-verifies",
         "negation-three-words-before-verifies",
         "free-then-another-word-verifies",

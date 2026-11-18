@@ -107,9 +107,9 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   `$0.00` and the like, and so `0 dollars`), and nothing else: not `$5`, not `$0.50`, and not
   `freedom`. A negated or trial `free` does not count (GitHub issue #45, rule (b)): one with
   `not`, `no`, `never`, `isn't`, `isnt`, `aren't`, `arent`, `without` or `non` among the two
-  words before it (`not free`, `no free plan`, `non-free`), or with `trial` directly after it
-  (`free trial`). Known limit: any other standalone `free` anywhere in the quote counts,
-  including another plan's free tier.
+  words before it (`not free`, `no free plan`, `non-free`), or with `trial` or `trials` directly
+  after it (`free trial`, `free trials`). Known limit: any other standalone `free` anywhere in
+  the quote counts, including another plan's free tier.
   A miss (not dropped) has the note `claim numbers not in quote: <values>`, sorted and
   deduplicated. Each value is named in its signed reading, the one spelling for rules (c) and
   (d): the sign in front and a leading point given its zero (`25 dollars`, `$ 25` and `25$` are
@@ -188,13 +188,13 @@ _PERCENT = re.compile(r"(?<=\d) ?(?:%|percent\b)")  # `20 %`, `20 percent` -> `2
 _FREE = re.compile(r"\bfree\b")
 _ZERO_PRICES = ("$0", "€0", "£0", "¥0")
 # Rule (b), on the normalized quote (brief assumption 8): a `free` that one of these words comes
-# within the two words before, or that `trial` directly follows, adds no zero price. A word is
-# letters and digits with inner apostrophes, so `isn't` is one word and `non-free` is `non` and
-# `free`; punctuation between words does not end the window.
+# within the two words before, or that `trial` or `trials` directly follows, adds no zero price.
+# A word is letters and digits with inner apostrophes, so `isn't` is one word and `non-free` is
+# `non` and `free`; punctuation between words does not end the window.
 _WORD = re.compile(r"\w+(?:'\w+)*")
 _NEGATIONS = frozenset({"not", "no", "never", "isn't", "isnt", "aren't", "arent", "without", "non"})
 _NEGATION_WINDOW = 2
-_TRIAL = re.compile(r"[ -]trial\b")  # `free trial`, `free-trial`; not `free trials`, `free: trial`
+_TRIAL = re.compile(r"[ -]trials?\b")  # `free trial(s)`, `free-trial`; not `free: trial`
 # Rule (a), matched where a bare integer ends, on the text after `_signed_prices` (brief
 # assumption 1): a unit from the closed list, singular or plural and ending its word, after
 # nothing, one space or one hyphen (`500credits`, `500 credits`, `50-seat`), or after one other
@@ -438,8 +438,8 @@ def _covers_zero(quote: str, free: re.Match[str]) -> bool:
 
     It does not when `not`, `no`, `never`, `isn't`, `isnt`, `aren't`, `arent`, `without` or
     `non` is one of the two words before it (`not free`, `no free plan`, `not really free`,
-    `non-free`), or when `trial` directly follows it (`free trial`). A negation three words
-    before does not count (`no card required, free`), nor one after (`free and no ads`).
+    `non-free`), or when `trial` or `trials` directly follows it (`free trial`). A negation three
+    words before does not count (`no card required, free`), nor one after (`free and no ads`).
     """
     before = _WORD.findall(quote, 0, free.start())[-_NEGATION_WINDOW:]
     if _NEGATIONS.intersection(before):
