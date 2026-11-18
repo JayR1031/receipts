@@ -324,8 +324,10 @@ def test_nonzero_cents_are_not_dropped(claim_text: str, missing: str) -> None:
 
 # --- suffixed, trailing-sign and leading-decimal prices (GitHub issue #45, rule (d)) --------
 # The quote-to-page half of test_suffixed_trailing_and_leading_decimal_prices_are_one_number is
-# in tests/test_verify.py. A miss note names each claim token as the normalized claim writes it
-# (`$1.2m`, `25$`, `$.99`), as `_missing_numbers` does for every token (`$20.00`, not `$20`).
+# in tests/test_verify.py. A miss note names each claim value in its signed reading, the one
+# spelling for rules (c) and (d): the sign in front and a leading point given its zero (`25$` is
+# named `$25`, `$.99` is `$0.99`, as `25 dollars` is `$25`); otherwise as the normalized claim
+# writes it (`$1.2m`, `$20,000k`, and `$20.00`, not `$20`).
 
 
 @pytest.mark.parametrize(
@@ -415,7 +417,7 @@ def test_suffixed_trailing_and_leading_decimal_prices_are_one_number_sign_after_
     # and `99`, so the signed spelling in the claim was a miss.
     out = verify_claim(*price_claim(written, other), [])
     assert (out.verified, out.verify_method) == (False, None)
-    assert out.verify_note == f"claim numbers not in quote: {written}"
+    assert out.verify_note == f"claim numbers not in quote: {signed}"
     for claim_price, quote_price in ((signed, written), (written, signed), (written, written)):
         out = verify_claim(*price_claim(claim_price, quote_price), [])
         assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
@@ -449,6 +451,188 @@ def test_a_sign_between_two_numbers_leads_the_second(claim_price: str, quote_pri
     # 949741f, so the quote holds `5` and `$20`, not `5$` and `20`. Green on 949741f by design.
     out = verify_claim(*price_claim(claim_price, f"seats: {quote_price}"), [])
     assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "quote", "outcome"),
+    [
+        (
+            "Enterprise is $1.2345k a year.",
+            "Enterprise is $1,234.5 a year",
+            (True, "quote_exact", None),
+        ),
+        (
+            "Enterprise is $1.2345k a year.",
+            "Enterprise is $1,234 a year",
+            (False, None, "claim numbers not in quote: $1.2345k"),
+        ),
+        ("Starter is $0k a year.", "Starter is $0 a year", (True, "quote_exact", None)),
+    ],
+    ids=["digits-past-the-point-kept", "digits-past-the-point-not-dropped", "zero-amount"],
+)
+def test_a_suffix_is_written_out_without_losing_a_digit(
+    claim_text: str, quote: str, outcome: tuple[bool, str | None, str | None]
+) -> None:
+    # The `token` verdict's MEDIUM 2: `_expand_suffix` keeps the digits left past the point
+    # (`$1.2345k` is `$1,234.5`, not `$1,234`) and writes a zero amount as `0` (`$0k` is `$0`).
+    url = "https://tokens.example/"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, f"{quote}."), [])
+    assert (out.verified, out.verify_method, out.verify_note) == outcome
+
+
+# --- unsigned prices (GitHub issue #45, rule (c)) -------------------------------------------
+# The claim rule reads `25 dollars`, `25 USD`, `USD 25`, `$ 25` and `25 €` as `$25` or `€25`, in
+# the claim and in the quote's values (brief assumptions 3 to 5). The quote-to-page half, which
+# does not use this reading, is in tests/test_verify.py.
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "missing"),
+    [
+        ("Pro costs 25 dollars.", "$25"),
+        ("Pro costs 1 dollar.", "$1"),
+        ("Pro costs 25 USD.", "$25"),
+        ("Pro costs USD 25.", "$25"),
+        ("Pro costs $ 25.", "$25"),
+        ("Pro costs 25 $ a month.", "$25"),
+        ("Pro costs 25 euro.", "€25"),
+        ("Pro costs 25 euros.", "€25"),
+        ("Pro costs 25 EUR.", "€25"),
+        ("Pro costs EUR 25.", "€25"),
+        ("Pro costs € 25.", "€25"),
+        ("Pro costs 25 €.", "€25"),
+        ("Pro costs 25 GBP.", "£25"),
+        ("Pro costs GBP 25.", "£25"),
+        ("Pro costs 25 £.", "£25"),
+        ("Pro costs 25 JPY.", "¥25"),
+        ("Pro costs JPY 25.", "¥25"),
+        ("Pro costs 25 yen.", "¥25"),
+        ("Pro costs 25 ¥.", "¥25"),
+        ("Pro costs 25.50 dollars.", "$25.50"),
+        ("Pro costs 2,500 dollars.", "$2,500"),
+    ],
+    ids=[
+        "dollars",
+        "dollar",
+        "usd-after",
+        "usd-before",
+        "sign-space",
+        "space-sign",
+        "euro",
+        "euros",
+        "eur-after",
+        "eur-before",
+        "euro-sign-space",
+        "space-euro-sign",
+        "gbp-after",
+        "gbp-before",
+        "space-pound-sign",
+        "jpy-after",
+        "jpy-before",
+        "yen",
+        "space-yen-sign",
+        "decimal",
+        "thousands-separator",
+    ],
+)
+def test_unsigned_prices_in_the_claim_are_checked(claim_text: str, missing: str) -> None:
+    # Brief (c): on 949741f each of these was a bare integer, unchecked, so the wrong price
+    # verified against a quote saying `$20` (the decimal and separator ones were checked, but
+    # named as written, `25.50`). The note names the price in its signed reading (assumption 5).
+    url = "https://tokens.example/"
+    quote = "Pro costs $20"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, f"{quote}."), [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note == f"claim numbers not in quote: {missing}"
+
+
+@pytest.mark.parametrize(
+    ("unsigned", "signed"),
+    [
+        ("25 dollars", "$25"),
+        ("25 USD", "$25"),
+        ("USD 25", "$25"),
+        ("$ 25", "$25"),
+        ("25 €", "€25"),
+        ("25 euros", "€25"),
+        ("GBP 25", "£25"),
+        ("25 yen", "¥25"),
+    ],
+    ids=["dollars", "usd-after", "usd-before", "sign-space", "space-sign", "euros", "gbp", "yen"],
+)
+def test_unsigned_price_matches_its_signed_spelling_in_the_claim_rule(
+    unsigned: str, signed: str
+) -> None:
+    # Brief (c), assumption 4: the quote's values add the signed reading of its unsigned price,
+    # so a claim may restate it either way. Checked in this order so that a defect in the
+    # quote-side reading fails on the both-unsigned case first; on 949741f the both-unsigned and
+    # unsigned-claim cases verified (the claim's `25` was unchecked) and the signed claim missed.
+    url = "https://tokens.example/"
+    cases = (
+        ("both unsigned", unsigned, unsigned),
+        ("unsigned claim, signed quote", unsigned, signed),
+        ("signed claim, unsigned quote", signed, unsigned),
+    )
+    for case, claim_price, quote_price in cases:
+        quote = f"Pro costs {quote_price}"
+        claim = claim_with_quote(f"Pro costs {claim_price}.", url, quote)
+        out = verify_claim(claim, page(url, f"{quote}."), [])
+        outcome = (out.verified, out.verify_method, out.verify_note)
+        assert outcome == (True, "quote_exact", None), case
+
+
+@pytest.mark.parametrize(
+    "claim_text",
+    ["Pro costs 25 pounds.", "Pro costs 25 bucks.", "Pro costs twenty-five dollars."],
+    ids=["pounds", "bucks", "number-words"],
+)
+def test_currency_words_outside_the_list_are_not_prices(claim_text: str) -> None:
+    # Brief assumption 3: "pounds" is often a weight, and "bucks" and number words are out of
+    # scope, so these stay unchecked and verify against a quote saying `$20`. Green on 949741f
+    # by design; it turns red if the word list grows past the brief's.
+    url = "https://tokens.example/"
+    quote = "Pro costs $20"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, f"{quote}."), [])
+    assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "quote", "text", "outcome"),
+    [
+        (
+            "Pro costs 25 dollars.",
+            "Pro costs $20",
+            "Pro costs $20.",
+            (False, None, "claim numbers not in quote: $25"),
+        ),
+        (
+            "Pro costs $25.",
+            "Pro costs 25 dollars",
+            "Pro costs 25 dollars.",
+            (True, "quote_exact", None),
+        ),
+        (
+            "Pro costs $20.",
+            "Pro costs 20 dollars",
+            "Pro costs $20.",
+            (
+                False,
+                None,
+                "quote not found on page: numbers differ (quote has 20; page has $20 there; "
+                "partial_ratio=92.3)",
+            ),
+        ),
+    ],
+    ids=["probe-2", "probe-3", "probe-6"],
+)
+def test_unsigned_prices_verification_5_probes(
+    claim_text: str, quote: str, text: str, outcome: tuple[bool, str | None, str | None]
+) -> None:
+    # Brief, Verification 5, probes 2, 3 and 6. On 949741f probe 2 verified and probe 3 did not;
+    # probe 6 (the narrow rule) was a miss and stays one.
+    url = "https://tokens.example/"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, text), [])
+    assert (out.verified, out.verify_method, out.verify_note) == outcome
 
 
 # --- precedence and scope ----------------------------------------------------------------
@@ -487,8 +671,8 @@ def test_search_receipt_claims_are_out_of_scope(
     sample_claims: list[Claim], sample_search_results: list[SearchResult]
 ) -> None:
     # sample_claims[1] has only a search receipt: no quote to check against. Its text is given a
-    # value token ("$14"; a bare "14 dollars" is not checked at all), so applying the claim rule
-    # here would turn this claim red.
+    # value token ("$14"; on 949741f a bare "14 dollars" was not checked at all), so applying the
+    # claim rule here would turn this claim red.
     claim = sample_claims[1].model_copy(
         update={
             "text": "Zeta Team is $14 per seat per month.",
