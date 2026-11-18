@@ -1,8 +1,8 @@
 <div align="center">
 
-# Receipts
+<h1><img src="docs/assets/receipts-banner.png" alt="Receipts: every claim carries a receipt. AI agents compare two companies, and a plain-code verifier checks every quote." width="100%"></h1>
 
-**Every claim shows its receipt.**
+<br>
 
 A crew of AI agents that compares two companies and hands you a battlecard where every line is
 checked against the web page or search result it came from.
@@ -12,26 +12,64 @@ checked against the web page or search result it came from.
 ![python >=3.11](https://img.shields.io/badge/python-%E2%89%A53.11-3776AB)
 ![Miami AI Hackathon](https://img.shields.io/badge/Miami%20AI%20Hackathon-tracks%2002%20%2B%2008-10b981)
 
-[**Live app**](https://receipts-h745.onrender.com) · [**Landing page**](https://receipts-landing-nine.vercel.app) · [How it works](#how-it-works) · [Verifier rules](#the-verifier) · [API](#api-quickstart)
+**[Try the live app](https://receipts-h745.onrender.com) &nbsp;·&nbsp; [Talk to Receipts](https://receipts-landing-nine.vercel.app) &nbsp;·&nbsp; [How it works](#how-it-works) &nbsp;·&nbsp; [The verifier](#the-verifier)**
+
+<img src="docs/assets/ui-theme-battlecard.png" alt="The Receipts UI replaying its built-in demo run: the progress log, then a battlecard with a verified claim, its quote and the page it came from" width="860">
+
+<sub>The UI replaying its built-in demo run (invented companies). Screenshot from 2026-11-15, before sign-in was added.</sub>
 
 </div>
 
-> [!IMPORTANT]
-> **Status on `main` (2026-11-16):** the deployed app runs live comparisons.
-> - **How a run works:** Claude agents search and fetch with Keenable, and every claim goes through the verifier. Runs are stored in Neon. A claim that fails gets up to two Mellea rewrites; those were measured locally before deploy, not yet on the deployed app (see the Mel vs Warp demo below).
-> - **Starting a run:** sign-in is optional (issue #41, ADR-0008). Signed out, a run needs the demo passcode (the Passcode field in the UI, `X-Demo-Passcode` in the API), and all signed-out runs together are capped at 20 per UTC day. Signed in with Google, a run needs no passcode, up to 5 per person per UTC day. Every API start is a signed-out run. Reading a battlecard by its id needs neither.
-> - **Who can sign in:** only the repository owner, while the Google OAuth app is in Testing mode. Everyone else uses the passcode.
+<table>
+<tr>
+<td width="33%" valign="top">
+
+**Receipts, or it doesn't count**
+
+A claim gets through only with a receipt: a quote from a page fetched during this run, or a
+search result logged during this run.
+
+</td>
+<td width="33%" valign="top">
+
+**A verifier with no language model**
+
+Plain code re-checks every receipt against what the run actually saw. The battlecard shows
+"N of M verified" and, for every miss, the reason.
+
+</td>
+<td width="33%" valign="top">
+
+**A specialist is one YAML file**
+
+A prompt, query templates and a search budget. Two packs ship today: pricing, and positioning
+and SEO.
+
+</td>
+</tr>
+</table>
+
+## Try it
+
+| | Where | What you need |
+|---|---|---|
+| **The app** | [receipts-h745.onrender.com](https://receipts-h745.onrender.com) | Reading past battlecards in History: nothing. Starting a run: the demo passcode, or Google sign-in. Only the repository owner can sign in while the Google OAuth app is in Testing mode. |
+| **The voice agent** | [receipts-landing-nine.vercel.app](https://receipts-landing-nine.vercel.app), "Talk to Receipts" | Nothing. It reads the app's public run list and battlecards (ElevenLabs). |
+| **The API** | [API quickstart](#api-quickstart) | The passcode header to start a run; nothing to read one. |
+
+> [!NOTE]
+> **Status on `main` (2026-11-18).**
+> - **Live comparisons.** Claude agents search and fetch with Keenable, every claim goes through the verifier, and runs are stored in Neon. A claim that fails gets up to two Mellea rewrites; those were measured locally, not yet on the deployed app ([Demo: Mel vs Warp](#demo-mel-vs-warp)).
+> - **Limits.** Signed-out runs (the UI with the passcode, and every API start) share one cap per UTC day: 5 on the deployed app, where `SIGNED_OUT_RUNS_PER_DAY` is set to 5 (2026-11-18); the code's default is 20. A signed-in person may start 5 per UTC day (issue #41, ADR-0008).
 > - **Without the live settings** (`ANTHROPIC_API_KEY`, `KEENABLE_API_KEY` and `DATABASE_URL`), the app serves one built-in demo run of invented companies instead (`src/receipts/api/wiring.py`). The UI replays it with no setup at all, and offers no sign-in. `POST /api/runs` still checks the passcode first (401 without one) and then the Keenable key (503 without it).
->
-> The live app runs on Render's free tier, which sleeps after 15 minutes idle. The first load can
-> take about a minute (Render's free-tier docs, cited in ADR-0005).
+> - **First load.** The app runs on Render's free tier, which sleeps after 15 minutes idle, so the first load can take about a minute (Render's free-tier docs, cited in ADR-0005).
 
 ## Contents
 
 - [The problem, the answer](#the-problem-the-answer)
 - [What you see in 30 seconds](#what-you-see-in-30-seconds)
 - [How it works](#how-it-works)
-- [The verifier](#the-verifier)
+- [The verifier](#the-verifier) (full rules and examples: [docs/verifier.md](docs/verifier.md))
 - [Add a specialist in one YAML file](#add-a-specialist-in-one-yaml-file)
 - [API quickstart](#api-quickstart)
 - [Run locally](#run-locally)
@@ -223,119 +261,10 @@ lower-cased, whitespace collapsed.
 | Search | Query was never searched this run | not verified (dropped) | `dropped: search query not logged this run` |
 | Search | Query logged, but no row with that rank and URL | not verified | `no logged row for query at rank N with that url` |
 
-**The number rules, in plain words** (PR #35):
-- **Why fuzzy needs a number rule:** a one-digit price change still scores about 97 on fuzzy matching. So each number in the quote, with its currency sign or `%`, must be the page's number at the same place in the match. A quote that swaps or repeats the page's prices fails.
-- **The claim has to match its quote:** every value in the claim must also be in its quote: a price written with a currency sign (`$20`, `€5`), a percentage, a decimal, or a number with a thousands separator. A quote proves only what it says.
-- **Equivalences:** commas that separate thousands are ignored, so `1,000` equals `1000` (a decimal comma such as `19,99` is kept). `$20.00` equals `$20`, and `20 percent` equals `20%`.
-
-The rules have known limits. Issue #45 tracks all but the last; the last is by design and is
-described in `rules.py`'s docstring:
-- Plan labels next to a price are not checked.
-- Bare-integer counts (`500 credits`) and prices with no sign attached (`25 dollars`, `25 USD`,
-  `$ 25`) in the claim are not checked.
-- A suffixed or trailing-sign price in the claim (`$20k`, `$1.2M`, `25$`, `$.99`) is read as `$20`,
-  `$1.2` or not at all, so it can verify against a quote that lacks it.
-- Any standalone "free" in the quote matches a `$0` claim, including "not free".
-- A claim that swaps two values its quote carries still verifies.
-- A true quote whose page text runs past the score window can be rejected.
-- Claims backed by a search receipt skip the claim-number rule: there is no quote to check the claim
-  against, so a price in the claim is not compared with the logged search result.
-
-The outputs below come from running `verify_claim` on each case at commit `d719360`; the same
-cases, or close variants, are in `tests/test_verify.py` and `tests/test_verify_claim_numbers.py`.
-
-<details>
-<summary><code>$19.99</code> quoted, page says <code>$19.49</code>: not verified</summary>
-
-```text
-page:  Basic is $19.49 per seat per month, billed yearly. Enterprise is $99 per seat.
-quote: Basic is $19.99 per seat per month, billed yearly
--> verified=False
-   note: quote not found on page: numbers differ (quote has $19.99; page has $19.49 there; partial_ratio=98.0)
-```
-
-</details>
-
-<details>
-<summary><code>1,000 seats</code> quoted, page says <code>1000 seats</code>: verified</summary>
-
-```text
-page:  The team plan includes 1000 seats and audit logs.
-quote: 1,000 seats
--> verified=True, method=quote_fuzzy
-   note: fuzzy match: partial_ratio=90.9 >= 90
-```
-
-</details>
-
-<details>
-<summary>Quote longer than the page: not verified</summary>
-
-`partial_ratio` slides the shorter string along the longer one, so a short page can score 100
-*inside* a long quote. The match must cover the whole quote.
-
-```text
-page:  Pricing
-quote: Our pricing is free forever for every team
--> verified=False
-   note: quote not found on page: fuzzy match does not cover the whole quote (partial_ratio=100.0 on 7/42 chars)
-```
-
-</details>
-
-<details>
-<summary>Fetch failed: "fetch failed", not "false"</summary>
-
-```text
-page:  (fetch returned ok=False)
-quote: anything
--> verified=False
-   note: fetch failed
-```
-
-A page the run could not read says nothing about whether the claim is true, so the note says so.
-
-</details>
-
-<details>
-<summary>Markdown on the page: still an exact match</summary>
-
-```text
-page:  # Plans
-       - The **Team** plan is [14 dollars](https://md.example/#t) per seat per month — billed yearly.
-quote: The Team plan is 14 dollars per seat per month - billed yearly.
--> verified=True, method=quote_exact
-```
-
-</details>
-
-<details>
-<summary>Claim price not in its quote: not verified</summary>
-
-```text
-page:  Build plan. $20 of agent usage included each month at API rates. Cancel any time.
-quote: $20 of agent usage included each month at API rates
-claim: Warp Build is $18/month on the annual plan and includes $20 of agent usage per month at API rates
--> verified=False
-   note: claim numbers not in quote: $18
-```
-
-The quote is on the page, but it does not carry the claim's `$18`. The claim and quote come from the run issue #33
-reported (`run-0e7ff2b1bb05`); the page text is invented for the test.
-
-</details>
-
-<details>
-<summary>Prices swapped inside the quote: not verified</summary>
-
-```text
-page:  Pro yearly: $199. Pro monthly: $19.
-quote: Pro yearly: $19. Pro monthly: $199.
--> verified=False
-   note: quote not found on page: numbers differ (quote has $19, $199; page has $199, $19 there; partial_ratio=97.1)
-```
-
-</details>
+The number rules in plain words, the known limits and seven worked examples with the verifier's
+real output are in **[docs/verifier.md](docs/verifier.md)**. Two of the limits: plan labels next to
+a price are not checked, and `$20k` in a claim is read as `$20`. Issue #45 tracks all the limits
+but one, which is by design.
 
 ## Add a specialist in one YAML file
 
@@ -374,7 +303,7 @@ be one of the four `Domain` values in the contracts (`pricing`, `positioning_seo
 
 Every `POST /api/runs` is a signed-out run: it needs the passcode header `X-Demo-Passcode`
 (`PASSCODE_HEADER` in `src/receipts/api/routes.py`) and counts against the signed-out cap (20 per
-UTC day by default), even with a session cookie. Reading needs no passcode. `GET /api/runs`
+UTC day by default; the deployed app sets 5), even with a session cookie. Reading needs no passcode. `GET /api/runs`
 without a session cookie lists the runs that belong to no one. Sign-in routes are in
 [`docs/api.md`](docs/api.md).
 
@@ -396,7 +325,7 @@ curl -sS "$BASE/api/runs"
 
 | Call | Success | Errors |
 |---|---|---|
-| `POST /api/runs` | `202 {"run_id": "..."}` | `401` passcode missing or wrong, `429` `20 of 20 signed-out runs used today (UTC); the limit resets at 00:00 UTC`, `503` `KEENABLE_API_KEY is not set`, `422` bad body |
+| `POST /api/runs` | `202 {"run_id": "..."}` | `401` passcode missing or wrong, `429` `5 of 5 signed-out runs used today (UTC); the limit resets at 00:00 UTC` (deployed cap), `503` `KEENABLE_API_KEY is not set`, `422` bad body |
 | `GET /api/runs/{run_id}` | `200` `Battlecard` | `404` `run <id> not found` |
 | `GET /api/runs` | `200` list of `RunSummary`: with a valid session cookie, that person's runs; without one, the runs with no user | none |
 | `GET /auth/me` | `200 {"email": "..."}` for a valid session | `401` `not signed in` |
@@ -482,7 +411,7 @@ committed file.
 | `GOOGLE_CLIENT_SECRET` | The Google OAuth client's secret, sent only to Google's token endpoint; sign-in needs it |
 | `SESSION_SECRET` | Signs the session and sign-in cookies; sign-in needs it. Locally, a throwaway: `export SESSION_SECRET="$(openssl rand -hex 32)"` |
 | `RUNS_PER_USER_PER_DAY` | Runs a signed-in person may start per UTC day (default 5) |
-| `SIGNED_OUT_RUNS_PER_DAY` | Runs all signed-out visitors and API calls together may start per UTC day (default 20) |
+| `SIGNED_OUT_RUNS_PER_DAY` | Runs all signed-out visitors and API calls together may start per UTC day (default 20; set to 5 on the deployed app) |
 
 Sign-in needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` and `DATABASE_URL`; with
 any missing, `/auth/login` answers 503 naming it, never its value. The UI shows "Sign in with
@@ -568,6 +497,21 @@ flowchart LR
     w2 --> w3["Wave 3: ship"]
 ```
 
+**The stack at a glance.**
+
+![Claude](https://img.shields.io/badge/Claude-Sonnet%205.5-000000?style=flat-square&logo=anthropic&logoColor=white)
+![LangChain](https://img.shields.io/badge/LangChain-000000?style=flat-square&logo=langchain&logoColor=white)
+![Keenable](https://img.shields.io/badge/Keenable-search%20%2B%20fetch-000000?style=flat-square)
+![Mellea](https://img.shields.io/badge/Mellea-IBM-000000?style=flat-square&logo=ibm&logoColor=white)
+![ElevenLabs](https://img.shields.io/badge/ElevenLabs-voice-000000?style=flat-square&logo=elevenlabs&logoColor=white)
+![Pydantic](https://img.shields.io/badge/Pydantic-000000?style=flat-square&logo=pydantic&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-000000?style=flat-square&logo=fastapi&logoColor=white)
+![Gradio](https://img.shields.io/badge/Gradio-000000?style=flat-square&logo=gradio&logoColor=white)
+![Neon](https://img.shields.io/badge/Neon-Postgres-000000?style=flat-square&logo=postgresql&logoColor=white)
+![Render](https://img.shields.io/badge/Render-000000?style=flat-square&logo=render&logoColor=white)
+![Vercel](https://img.shields.io/badge/Vercel-000000?style=flat-square&logo=vercel&logoColor=white)
+![Claude Code](https://img.shields.io/badge/built%20with-Claude%20Code-000000?style=flat-square&logo=claude&logoColor=white)
+
 **Credits.**
 
 <p align="center"><img src="docs/assets/miami-ai-hackathon.jpg" alt="The Miami AI Hackathon screen, &quot;mel × ElevenLabs presents: Miami AI Hackathon, November 14, 2026&quot;, beside a Miami Dade College podium" width="420"></p>
@@ -590,7 +534,7 @@ flowchart LR
   - [LiteLLM](https://github.com/BerriAI/litellm) as Mellea's client for Anthropic.
   - [SQLAlchemy](https://www.sqlalchemy.org) on [Neon](https://neon.tech) Postgres.
   - Hosting on [Render](https://render.com) (the app) and [Vercel](https://vercel.com) (the landing page).
-- **Built with.** **Claude Code** built Wave 0 and lanes L1 to L5, each in its own worktree, plus the live wiring, the landing page and this README.
+- **Built with.** **Claude Code** built Wave 0 and lanes L1 to L5, each in its own worktree, plus the live wiring, the landing page, lane L7 (Google sign-in, issue #41) and this README.
 - **Logo.** The logo was generated by the owner with OpenAI's Codex app.
 
 Engineering standard: [`AGENTS.md`](AGENTS.md). Decisions: [`docs/adr/`](docs/adr/). Design spec:
