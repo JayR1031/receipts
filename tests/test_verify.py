@@ -981,6 +981,76 @@ def test_suffixed_trailing_and_leading_decimal_prices_are_one_number_probe_1() -
     assert not is_dropped(out)
 
 
+# --- unsigned prices (GitHub issue #45, rule (c)): the quote-to-page match is unchanged ---------
+# The claim-rule half is in tests/test_verify_claim_numbers.py.
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "quote", "text", "note"),
+    [
+        (
+            "Pro costs $20.",
+            "Pro costs 20 dollars",
+            "Pro costs $20.",
+            "quote not found on page: numbers differ (quote has 20; page has $20 there; "
+            "partial_ratio=92.3)",
+        ),
+        (
+            "invented claim",
+            "Pro costs 20 dollars",
+            "Pro costs $20.",
+            "quote not found on page: numbers differ (quote has 20; page has $20 there; "
+            "partial_ratio=92.3)",
+        ),
+        (
+            "invented claim",
+            "Pro costs 20 USD",
+            "Pro costs $20.",
+            "quote not found on page: numbers differ (quote has 20; page has $20 there; "
+            "partial_ratio=92.3)",
+        ),
+        (
+            "invented claim",
+            "Pro costs USD 20",
+            "Pro costs $20.",
+            "quote not found on page: best partial_ratio=83.3 < 90",
+        ),
+        (
+            "invented claim",
+            "Pro costs $ 20",
+            "Pro costs $20.",
+            "quote not found on page: numbers differ (quote has 20; page has $20 there; "
+            "partial_ratio=96.3)",
+        ),
+        (
+            "invented claim",
+            "Pro costs 20 €",
+            "Pro costs €20.",
+            "quote not found on page: numbers differ (quote has 20; page has €20 there; "
+            "partial_ratio=92.3)",
+        ),
+    ],
+    ids=["probe-6", "dollars", "usd-after", "usd-before", "sign-space", "space-sign"],
+)
+def test_unsigned_quote_price_still_misses_a_signed_page_price(
+    claim_text: str, quote: str, text: str, note: str
+) -> None:
+    # Pins the narrow rule (brief (c), owner 2026-11-18): the unsigned-price reading is for the
+    # claim rule only. `normalize` and `_match_quote` read the quote as written, so a quote that
+    # drops the page's currency sign stays a miss, as PR #35 measured. Green on 949741f too.
+    url = "https://tokens.example/"
+    claim = Claim(
+        domain="pricing",
+        about="rival",
+        text=claim_text,
+        receipt=QuoteReceipt(url=url, quote=quote),
+    )
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(claim, pages, [])
+    assert (out.verified, out.verify_method, out.verify_note) == (False, None, note)
+    assert not is_dropped(out)
+
+
 # --- search receipts ----------------------------------------------------------------
 
 

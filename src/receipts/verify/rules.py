@@ -35,8 +35,8 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   (`$20.00 == $20.0 == $20`; `$20.05` and `$20.50` stay). `normalize` writes `20 %` and
   `20 percent` as `20%`. Out of scope: number words (`three` is not `3`); `bn`, `mm`, `million`
   and `thousand`, a space before a suffix, a suffix on an unsigned number (`1.5k` is not
-  `1,500`; `$1.5k` is) and a decimal comma before a suffix; and `20 dollars` or `20 USD` is not
-  `$20`.
+  `1,500`; `$1.5k` is) and a decimal comma before a suffix; and, in the quote-to-page match,
+  `20 dollars`, `20 USD` and `$ 20` are not `$20` (the claim rule reads them as `$20`; below).
   - **Exact path**: an occurrence of the quote counts only if neither of its edges falls inside
     a page number token. `basic is $19` inside `basic is $199`, `basic is $19.` inside
     `$19.99`, `99 per seat` inside `$19.99 per seat`, `save 20` inside `save 20%` and
@@ -77,23 +77,36 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   as verified; the known limits in this docstring are the exceptions. `normalize` keeps
   `$ € £ % . ,` next to digits, so the token regex runs on the normalized strings.
 * **Claim numbers must be in the quote** (GitHub issue #33): once the quote is on the page
-  (`quote_exact` or `quote_fuzzy`), every **value token** in the normalized `claim.text` must
-  also be a number token of the normalized quote, compared as above. A value token is a number
-  token with a currency sign, a `%`, a decimal part or a thousands separator (`$20`, `20%`,
-  `19.5`, `2,500`). A bare integer is not checked, so a year (`As of 2025`), a plan or model
-  name (`Pro 2`, `GPT-4`), `24/7` or a date need not be in the quote. Known limit: a bare
-  integer count is not checked either, so `500 credits` or `50 seats` in the claim verifies when
-  the quote lacks it, and `18000 credits` is unchecked while `18,000 credits` is checked. Known
-  limit: a price without an attached sign is a bare integer too, so a claim's `25 dollars`,
-  `25 USD` or `$ 25` is unchecked and verifies against a quote saying `$20` (fail-open on the
-  claim side; on the quote side the same spelling fails closed, per the paragraph above). A name
-  or date with a decimal point (`GPT-4.5`, `14.11.2026`) is a value token and is checked. The
-  word `free` in the quote matches a zero price in the claim (`$0`, `€0`, `£0`, `¥0`, and
-  `$0.00` and the like; `0 dollars` is a bare integer and is not checked), and nothing else: not
-  `$5`, not `$0.50`, and not `freedom`. Known limit: any standalone `free` anywhere in the
-  quote counts, including `not free`, `free trial` and another plan's free tier.
-  A miss (not dropped) has the note `claim numbers not in quote: <tokens>`, sorted and
-  deduplicated. A quote on the page proves only what the quote says; a price the model added to
+  (`quote_exact` or `quote_fuzzy`), every **value token** of the normalized `claim.text`, its
+  unsigned prices read as signed (below), must also be a value of the normalized quote, compared
+  as above: one of its number tokens, or the signed reading of one of its unsigned prices. A
+  value token is a number token with a currency sign, a `%`, a decimal part or a thousands
+  separator (`$20`, `20%`, `19.5`, `2,500`). A bare integer is not checked, so a year (`As of
+  2025`), a plan or model name (`Pro 2`, `GPT-4`), `24/7` or a date need not be in the quote.
+  Known limit: a bare integer count is not checked either, so `500 credits` or `50 seats` in the
+  claim verifies when the quote lacks it, and `18000 credits` is unchecked while `18,000
+  credits` is checked.
+  **Unsigned prices** (GitHub issue #45, rule (c); the claim rule only): a number followed by
+  one space and `dollar`, `dollars`, `usd`, `euro`, `euros`, `eur`, `gbp`, `jpy` or `yen`;
+  `usd`, `eur`, `gbp` or `jpy` followed by one space and a number; a sign followed by one space
+  and a number (`$ 25`); and a number followed by one space and a sign (`25 €`) are read as the
+  signed price (`25 dollars`, `25 USD`, `USD 25` and `$ 25` as `$25`; `25 €` as `€25`). In the
+  claim this reading takes the number's place; in the quote it is added to the quote's own
+  tokens, so a quote `25 dollars` backs a claim's `$25`, `25 dollars` or bare `25`. `pounds`,
+  `bucks` and number words are not read. The quote-to-page match does not use this reading: a
+  quote `20 dollars` on a page `$20` is still a miss (fail-closed; that match stays as PR #35
+  measured it).
+  A name or date with a decimal point (`GPT-4.5`, `14.11.2026`) is a value token and is checked.
+  The word `free` in the quote matches a zero price in the claim (`$0`, `€0`, `£0`, `¥0`,
+  `$0.00` and the like, and so `0 dollars`), and nothing else: not `$5`, not `$0.50`, and not
+  `freedom`. Known limit: any standalone `free` anywhere in the quote counts, including `not
+  free`, `free trial` and another plan's free tier.
+  A miss (not dropped) has the note `claim numbers not in quote: <values>`, sorted and
+  deduplicated. Each value is named in its signed reading, the one spelling for rules (c) and
+  (d): the sign in front and a leading point given its zero (`25 dollars`, `$ 25` and `25$` are
+  named `$25`; `$.99` is `$0.99`), and otherwise as the normalized claim writes it (`$1.2m`,
+  `$20.00`, `2,500`). The quote-to-page note names tokens as the quote and page write them.
+  A quote on the page proves only what the quote says; a price the model added to
   the claim text is not covered by it. The quote may carry numbers the claim does not repeat.
   Known limit: the rule checks that each value is in the quote, not which plan or billing term
   it belongs to, so values swapped inside one quote still verify.
@@ -165,6 +178,29 @@ _VALUE_MARK = re.compile(r"[$€£¥%.,]")
 _PERCENT = re.compile(r"(?<=\d) ?(?:%|percent\b)")  # `20 %`, `20 percent` -> `20%`
 _FREE = re.compile(r"\bfree\b")
 _ZERO_PRICES = ("$0", "€0", "£0", "¥0")
+# Rule (c), for the claim rule only, on normalized text: an unsigned price. A number, one space
+# and a currency word or sign (`25 dollars`, `25 €`); a currency code, one space and a number
+# (`usd 25`); or a sign, one space and a number (`$ 25`). No number inside a longer token is read
+# (`$25 dollars` stays `$25`, `$.25 usd` stays `$.25`), and a sign that a number follows leads
+# that number, as in `_NUMBER_TOKEN` (`5 $20` and `5 $ 20` are `5` and `$20`).
+_AMOUNT = r"\d+(?:[.,]\d+)*"
+_UNSIGNED_PRICE = re.compile(
+    rf"(?<![\w$€£¥.,])(?P<n1>{_AMOUNT}) (?:"
+    r"(?P<w1>dollars?|usd|euros?|eur|gbp|jpy|yen)\b(?![.,]\d)|(?P<s1>[$€£¥])(?! ?[.,]?\d))"
+    rf"|\b(?P<w2>usd|eur|gbp|jpy) (?P<n2>{_AMOUNT})"
+    rf"|(?<![\w.,])(?P<s2>[$€£¥]) (?P<n3>{_AMOUNT})"
+)
+_CURRENCY_WORD = {
+    "dollar": "$",
+    "dollars": "$",
+    "usd": "$",
+    "euro": "€",
+    "euros": "€",
+    "eur": "€",
+    "gbp": "£",
+    "jpy": "¥",
+    "yen": "¥",
+}
 _QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
 _DASHES = str.maketrans({"–": "-", "—": "-"})
 
@@ -310,21 +346,67 @@ def _expand_suffix(match: re.Match[str]) -> str:
     return f"{sign}{value}.{rest}" if rest else f"{sign}{value}"
 
 
-def _claim_values(text: str) -> list[str]:
-    """The value tokens of the normalized claim `text`: number tokens with `$ € £ ¥ % . ,`.
+def _signed(match: re.Match[str]) -> str:
+    """The signed spelling of an `_UNSIGNED_PRICE` match: `25 dollars` or `$ 25` -> `$25`."""
+    word = match["w1"] or match["w2"]
+    sign = _CURRENCY_WORD[word] if word else match["s1"] or match["s2"]
+    return f"{sign}{match['n1'] or match['n2'] or match['n3']}"
 
-    A bare integer (`2025`, `Pro 2`, `24/7`, `GPT-4`) is left out (module docstring).
+
+def _signed_prices(text: str) -> str:
+    """The normalized `text` with each unsigned price written signed (rule (c), claim rule only).
+
+    `pro costs 25 dollars` -> `pro costs $25`; `usd 25`, `$ 25` and `25 usd` -> `$25`; `25 €` and
+    `25 euros` -> `€25`; `gbp 25` -> `£25`; `25 yen` -> `¥25`. Only these spellings (brief
+    assumption 3): `25 pounds`, `25 bucks` and number words are left as they are. The result is
+    read with `_NUMBER_TOKEN`, so `$ 20k` reads `$20k`, as `$20k` does.
     """
-    return [tok for tok in _NUMBER_TOKEN.findall(normalize(text)) if _VALUE_MARK.search(tok)]
+    return _UNSIGNED_PRICE.sub(_signed, text)
+
+
+def _signed_reading(token: str) -> str:
+    """A `_NUMBER_TOKEN` token with its sign in front and a leading point given its zero.
+
+    `25$` -> `$25`, `$.99` -> `$0.99`; every other token is unchanged (`$1.2m`, `$20.00`, `2,500`).
+    These are the first two steps of `_canonical_number`, so the canonical form does not change.
+    It is the spelling the claim rule's miss note shows.
+    """
+    return _LEADING_POINT.sub(r"\g<1>0.", _TRAILING_SIGN.sub(r"\2\1", token))
+
+
+def _claim_values(text: str) -> list[str]:
+    """The value tokens of the claim `text`, each in its signed reading.
+
+    The readings, in this order; each number is read once, by the first reading that takes it:
+
+    1. `normalize`.
+    2. Unsigned prices written signed (`_signed_prices`, rule (c)): `25 dollars`, `25 usd`,
+       `usd 25`, `$ 25` and `25 €` become `$25` and `€25` in the text. This reading consumes the
+       number: it now carries its sign, so no bare `25` is left for a later reading (`$ 25 per
+       seat` is the price `$25`, and not also 25 seats).
+    3. `_NUMBER_TOKEN` over the text of step 2. A token with `$ € £ ¥ % . ,` is a value; a bare
+       integer (`2025`, `Pro 2`, `24/7`, `GPT-4`) is left out (module docstring).
+    4. Each value in its signed reading (`_signed_reading`: `25$` -> `$25`, `$.99` -> `$0.99`),
+       the spelling the miss note shows.
+
+    A later reading (rule (a), counts with units) takes only the bare integers that step 3
+    leaves out, from the text of step 2, so it never sees a number that step 2 read as a price.
+    """
+    tokens = _NUMBER_TOKEN.findall(_signed_prices(normalize(text)))
+    return [_signed_reading(tok) for tok in tokens if _VALUE_MARK.search(tok)]
 
 
 def _quote_values(quote: str) -> list[str]:
-    """The number tokens of the normalized `quote`, plus a zero price when it says `free`.
+    """The claim rule's values of the normalized `quote`.
 
-    For the claim rule only: a claim's `$0` or `$0.00` is the quote's "free" (live run
+    Its number tokens; the signed readings of its unsigned prices, which are the number tokens of
+    `_signed_prices(quote)`; and a zero price when it says `free`. For the claim rule only:
+    `_match_quote` reads the quote as written. The signed readings are added to the quote's own
+    tokens, not put in their place (brief assumption 4), so a quote `25 dollars` backs a claim's
+    `$25` and a claim's bare `25`. A claim's `$0` or `$0.00` is the quote's "free" (live run
     run-6a5fe9499c4d). The word must stand alone, so "freedom" does not count.
     """
-    tokens = _NUMBER_TOKEN.findall(quote)
+    tokens = [*_NUMBER_TOKEN.findall(quote), *_NUMBER_TOKEN.findall(_signed_prices(quote))]
     return [*tokens, *_ZERO_PRICES] if _FREE.search(quote) else tokens
 
 
