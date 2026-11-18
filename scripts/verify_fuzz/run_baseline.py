@@ -2,16 +2,25 @@
 
 Usage: run_baseline.py [--kinds k1,k2,...]   (default: every group)
 
-Before running anything it checks the SHA-256 of the six PR #35 scripts against pinned.sha256; a
-mismatch or a missing pin exits 1. A denominator that no rule can move (FIXED) also fails when it
-changes; the other denominators only print a note.
+Groups: `quote` runs the eleven PR #35 commands (the quote-to-page rule); `count`, `unsigned`,
+`suffix`, `trailing`, `leading_decimal`, `free` and `control` each run fuzz_claim_values.py for
+that kind (the claim-against-quote rule, issue #45).
 
-Exit 0 when no fail-open count (wrong prices verified) and no fail-closed count (true quotes
-rejected) is above its "at most" value in expected.txt, 1 when one is or one is missing, 2 for an
-unknown kind. A count that fell prints FELL and does not fail.
+Before running anything it checks two things, and a failure of either exits 1:
+- pins: the SHA-256 of each of the six PR #35 scripts (PINNED_SCRIPTS) against pinned.sha256. A
+  changed digest, a missing script, one of the six with no line, or a missing pin file fails.
+- argv: every command (script, seed, n, extra arguments) must be the one that each of its counts'
+  expected.txt lines names before the colon of its set column, so lowering a sample size fails.
+A denominator that no rule can move (FIXED) also fails when it changes; the other denominators
+only print a note.
 
-To add a group: write a function returning a GroupResult (summary lines, observations) and
-register it in GROUPS under its kind; add its lines to expected.txt under that kind.
+Exit 0 when no fail-open count (wrong prices or claims verified) and no fail-closed count (true
+quotes or claims rejected) is above its "at most" value in expected.txt, 1 when one is or one is
+missing, 2 for an unknown kind. A count that fell prints FELL and does not fail.
+
+To add a group: register a Group (its commands, and any totals over their counts) in GROUPS under
+its kind; add its lines to expected.txt under that kind, each set column starting with its
+command.
 """
 
 from __future__ import annotations
@@ -20,7 +29,7 @@ import hashlib
 import re
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,15 +37,29 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 EXPECTED = HERE / "expected.txt"
 PINNED = HERE / "pinned.sha256"
+PINNED_SCRIPTS = (
+    "fuzz_place_all.py",
+    "fuzz_dense.py",
+    "fuzz_skip.py",
+    "fuzz_add.py",
+    "fuzz_place2.py",
+    "fuzz_spread.py",
+)
+CLAIM_ARGV = ("fuzz_claim_values.py", "45", "300")  # seed, then n cases per kind
+CLAIM_KINDS = ("count", "unsigned", "suffix", "trailing", "leading_decimal", "free", "control")
 # Denominators fixed before any receipts.verify call: fuzz_place2.py's step() counts one try per
-# iteration (tally.tried, line 127) and fuzz_spread.py's main() counts one per iteration (line 47).
+# iteration (tally.tried, line 127), fuzz_spread.py's main() counts one per iteration (line 47),
+# and fuzz_claim_values.py verifies one WRONG and one TRUE claim in each of its n cases per kind,
+# with no skip (record(), called once per case by run_kind()).
 FIXED = frozenset(
-    {"place2.s7", "place2.s11", "place2.s12", "place2.s13", "place2.total"} | {"spread.open"}
+    {"place2.s7", "place2.s11", "place2.s12", "place2.s13", "place2.total"}
+    | {"spread.open"}
+    | {f"claims.{kind}.{side}" for kind in CLAIM_KINDS for side in ("open", "closed")}
 )
 
 Obs = tuple[str, int, int]  # name, observed count, denominator
 GroupResult = tuple[list[str], list[Obs]]  # summary lines as printed, observations
-NOISE = ("RULES", "OPEN", "CLOSED", "EX", "VERIFIED-WITH-WRONG-SLOT")
+NOISE = ("RULES", "OPEN", "CLOSED", "EX", "VERIFIED-WITH-WRONG-SLOT", "SHAPE")
 
 
 @dataclass(frozen=True)
@@ -53,20 +76,40 @@ class Command:
 
 
 @dataclass(frozen=True)
+class Group:
+    commands: tuple[Command, ...]
+    totals: tuple[tuple[str, tuple[str, ...]], ...] = ()  # (name, the counts it sums)
+
+
+@dataclass(frozen=True)
 class Limit:
     group: str
     direction: str
     at_most: int
     denominator: int
+    over: str  # the set column: "<command>: <what is counted, of what>"
+
+
+def read_pins(path: Path) -> tuple[dict[str, str], list[str]]:
+    """`{script name: digest}` from `path`, and one message per line that is not `digest name`."""
+    pins: dict[str, str] = {}
+    bad: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        fields = line.split()
+        if len(fields) == 2:
+            pins[fields[1]] = fields[0]
+        elif fields:
+            bad.append(f"{path.name}: unreadable pin line {line!r}")
+    return pins, bad
 
 
 def check_pins(path: Path) -> list[str]:
-    """Return one message per pinned script whose SHA-256 differs, or per unreadable pin."""
-    bad = []
+    """One message per PR #35 script that is unpinned, missing or changed, or per unreadable pin."""
     if not path.is_file():
         return [f"{path.name}: pin file is missing"]
-    pins = [ln.split() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    for digest, name in pins:
+    pins, bad = read_pins(path)
+    bad += [f"{n}: no line in {path.name} (unpinned)" for n in PINNED_SCRIPTS if n not in pins]
+    for name, digest in pins.items():
         script = HERE / name
         if not script.is_file():
             bad.append(f"{name}: pinned script is missing")
@@ -153,18 +196,28 @@ def quote_commands() -> list[Command]:
     return cmds
 
 
-def quote_group() -> GroupResult:
-    lines, obs = run_commands(quote_commands())
-    obs.append(total("add.open.total", ("add.s51.open", "add.s52.open", "add.s53.open"), obs))
-    obs.append(
-        total("add.closed.total", ("add.s51.closed", "add.s52.closed", "add.s53.closed"), obs)
-    )
-    obs.append(total("place2.total", tuple(f"place2.s{s}" for s in (7, 11, 12, 13)), obs))
-    obs.append(total("skip.total", ("skip.s5", "skip.s6"), obs))
-    return lines, obs
+QUOTE_TOTALS = (
+    ("add.open.total", ("add.s51.open", "add.s52.open", "add.s53.open")),
+    ("add.closed.total", ("add.s51.closed", "add.s52.closed", "add.s53.closed")),
+    ("place2.total", tuple(f"place2.s{s}" for s in (7, 11, 12, 13))),
+    ("skip.total", ("skip.s5", "skip.s6")),
+)
 
 
-GROUPS: dict[str, Callable[[], GroupResult]] = {"quote": quote_group}
+def claim_command(kind: str) -> Command:
+    wrong = rf"kind={kind} WRONG claims verified (\d+) of (\d+)"
+    true = rf"kind={kind} TRUE claims rejected (\d+) of (\d+)"
+    metrics = (Metric(f"claims.{kind}.open", wrong), Metric(f"claims.{kind}.closed", true))
+    return Command((*CLAIM_ARGV, kind), metrics)
+
+
+GROUPS: dict[str, Group] = {"quote": Group(tuple(quote_commands()), QUOTE_TOTALS)}
+GROUPS |= {kind: Group((claim_command(kind),)) for kind in CLAIM_KINDS}
+
+
+def run_group(group: Group) -> GroupResult:
+    lines, obs = run_commands(list(group.commands))
+    return lines, obs + [total(name, parts, obs) for name, parts in group.totals]
 
 
 def read_expected(path: Path) -> dict[str, Limit]:
@@ -172,9 +225,27 @@ def read_expected(path: Path) -> dict[str, Limit]:
     for raw in path.read_text(encoding="utf-8").splitlines():
         if not raw.strip() or raw.startswith("#"):
             continue
-        group, name, direction, at_most, den = (f.strip() for f in raw.split("|")[:5])
-        limits[name] = Limit(group, direction, int(at_most), int(den))
+        group, name, direction, at_most, den, over = (f.strip() for f in raw.split("|", 5))
+        limits[name] = Limit(group, direction, int(at_most), int(den), over)
     return limits
+
+
+def argv_mismatches(groups: Iterable[Group], limits: dict[str, Limit]) -> list[str]:
+    """One message per count whose command is not the one its expected.txt line names."""
+    runs = {m.name: " ".join(c.argv) for g in groups for c in g.commands for m in c.metrics}
+    bad = []
+    for name, argv in runs.items():
+        limit = limits.get(name)
+        named = argv if limit is None else limit.over.partition(":")[0].strip()
+        if named != argv:
+            bad.append(f"{name}: run_baseline.py runs '{argv}', expected.txt names '{named}'")
+    return bad
+
+
+def preflight(limits: dict[str, Limit]) -> list[str]:
+    """Why no count can be trusted, checked before anything runs: the pins, then every argv."""
+    pins = [f"PIN MISMATCH {e}" for e in check_pins(PINNED)]
+    return pins + [f"ARGV MISMATCH {e}" for e in argv_mismatches(GROUPS.values(), limits)]
 
 
 def status(count: int, limit: Limit) -> str:
@@ -226,15 +297,15 @@ def main(argv: list[str]) -> int:
     kinds = parse_kinds(argv)
     if kinds is None:
         return 2
-    pin_errors = check_pins(PINNED)
-    if pin_errors:
-        print("\n".join(f"PIN MISMATCH {e}" for e in pin_errors))
-        return 1
     limits = read_expected(EXPECTED)
+    errors = preflight(limits)
+    if errors:
+        print("\n".join(errors))
+        return 1
     lines: list[str] = []
     obs: list[Obs] = []
     for kind in kinds:
-        group_lines, group_obs = GROUPS[kind]()
+        group_lines, group_obs = run_group(GROUPS[kind])
         lines.extend(group_lines)
         obs.extend(group_obs)
     report, failed = compare(obs, limits)
