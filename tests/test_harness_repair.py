@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import subprocess
 import time
@@ -67,6 +68,7 @@ RUN_ID = RunId("run-repair-0001")
 REQUEST = RunRequest(subject="Acme Widgets", rival="Zeta Gadgets", category="widgets")
 
 GOOD_QUOTE = "Plans start at 9 dollars per seat"  # on data.SUBJECT_PAGE
+MONTHLY_QUOTE = "Plans start at 9 dollars per seat per month"  # on it too: a different receipt
 BAD_QUOTE = "Seats cost nine dollars monthly"  # not on it
 STILL_BAD_QUOTE = "Seats are 9 dollars a month"  # not on it either
 
@@ -173,7 +175,7 @@ async def _events(runner: SpecialistRunner, pack: DomainPack) -> list[RunEvent]:
 async def test_failing_claim_is_repaired_with_the_verifier_reason_then_verified(
     fake_keenable: FakeKeenable, sample_pack: DomainPack
 ) -> None:
-    already_good = _draft(GOOD_QUOTE, text="Acme plans start at 9 dollars per seat.")
+    already_good = _draft(MONTHLY_QUOTE, text="Acme plans start at 9 dollars per seat.")
     backend = RecordingBackend([_block(_draft(STILL_BAD_QUOTE)), _block(_draft(GOOD_QUOTE))])
     runner = _runner(fake_keenable, _agent(already_good, _draft(BAD_QUOTE)), backend)
 
@@ -181,7 +183,7 @@ async def test_failing_claim_is_repaired_with_the_verifier_reason_then_verified(
 
     verified = [e.claim for e in events if isinstance(e, VerifiedEvent)]
     assert [c.receipt.quote for c in verified if isinstance(c.receipt, QuoteReceipt)] == [
-        GOOD_QUOTE,
+        MONTHLY_QUOTE,
         GOOD_QUOTE,
     ]
     assert all(c.verify_method == "quote_exact" for c in verified)
@@ -247,6 +249,114 @@ async def test_unrepairable_claim_is_dropped_unchanged_and_counted(
     assert isinstance(done, DoneEvent)
     assert (done.verified_count, done.total_count) == (0, 1)
     assert "not one claim in a fenced json block" in backend.prompts[1]
+
+
+# --- a repair may not copy another claim's receipt (GitHub issue #45) --------------------------
+
+REPAIR_LOGGER = "receipts.harness.specialist"
+
+
+def _quotes(claims: Sequence[Claim]) -> list[str]:
+    return [c.receipt.quote for c in claims if isinstance(c.receipt, QuoteReceipt)]
+
+
+def _repair_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.name == REPAIR_LOGGER]
+
+
+async def _coordinated(runner: SpecialistRunner, pack: DomainPack) -> list[RunEvent]:
+    coordinator = Coordinator([pack], runner, max_concurrent=1)
+    return [e async for e in coordinator.run(RUN_ID, REQUEST)]
+
+
+def _counts(events: Sequence[RunEvent]) -> tuple[int, int]:
+    done = events[-1]
+    assert isinstance(done, DoneEvent)
+    return done.verified_count, done.total_count
+
+
+async def test_a_repair_that_duplicates_another_claims_receipt_is_not_accepted(
+    fake_keenable: FakeKeenable, sample_pack: DomainPack, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger=REPAIR_LOGGER)
+    already_good = _draft(GOOD_QUOTE, text="Acme plans start at 9 dollars per seat.")
+    backend = RecordingBackend([_block(_draft(GOOD_QUOTE))])  # passes Mellea's own check
+    runner = _runner(fake_keenable, _agent(already_good, _draft(BAD_QUOTE)), backend)
+
+    events = await _coordinated(runner, sample_pack)
+
+    verified = [e.claim for e in events if isinstance(e, VerifiedEvent)]
+    assert _quotes(verified) == [GOOD_QUOTE]
+    assert [c.text for c in verified] == ["Acme plans start at 9 dollars per seat."]
+    dropped = [e for e in events if isinstance(e, DroppedEvent)]
+    assert _quotes([d.claim for d in dropped]) == [BAD_QUOTE]  # the original, unchanged
+    assert [d.reason for d in dropped] == [_note(BAD_QUOTE)]
+    assert _counts(events) == (1, 2)
+    assert len(backend.prompts) == 1  # Mellea accepted the repair; the runner refused it
+    assert _repair_lines(caplog) == ["claim repair: pricing failing=1 repaired=0"]
+
+
+async def test_two_repairs_converging_on_one_receipt_keep_only_the_first(
+    fake_keenable: FakeKeenable, sample_pack: DomainPack, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger=REPAIR_LOGGER)
+    backend = RecordingBackend([_block(_draft(GOOD_QUOTE))] * 2)
+    agent = _agent(_draft(BAD_QUOTE), _draft(STILL_BAD_QUOTE))
+
+    events = await _coordinated(_runner(fake_keenable, agent, backend), sample_pack)
+
+    # Settled in the claims' order: the first repair takes GOOD_QUOTE, the second would copy it.
+    claimed = [e.claim for e in events if isinstance(e, ClaimEvent)]
+    assert _quotes(claimed) == [GOOD_QUOTE, STILL_BAD_QUOTE]
+    assert _quotes([e.claim for e in events if isinstance(e, VerifiedEvent)]) == [GOOD_QUOTE]
+    dropped = [e for e in events if isinstance(e, DroppedEvent)]
+    assert [d.reason for d in dropped] == [_note(STILL_BAD_QUOTE)]
+    assert _counts(events) == (1, 2)
+    assert len(backend.prompts) == 2
+    assert _repair_lines(caplog) == ["claim repair: pricing failing=2 repaired=1"]
+
+
+async def test_a_repair_that_keeps_its_own_receipt_is_accepted(
+    fake_keenable: FakeKeenable, sample_pack: DomainPack, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The agent wrote two claims on GOOD_QUOTE; the second states a price the quote lacks. Its
+    repair keeps that claim's own receipt and changes only the text, so it is accepted, though the
+    first claim cites the same receipt: the receipt is the agent's, not a copy. A third claim's
+    repair onto GOOD_QUOTE is still refused, so the duplicate check is live in this run."""
+    caplog.set_level(logging.INFO, logger=REPAIR_LOGGER)
+    fixed_text = "Acme plans start at 9 dollars per seat."
+    wrong_price = _draft(GOOD_QUOTE, text="Acme starts at $12 per seat.")
+    backend = RecordingBackend([_block(_draft(GOOD_QUOTE, text=fixed_text))] * 2)
+    agent = _agent(_draft(GOOD_QUOTE), wrong_price, _draft(BAD_QUOTE))
+
+    events = await _coordinated(_runner(fake_keenable, agent, backend), sample_pack)
+
+    verified = [e.claim for e in events if isinstance(e, VerifiedEvent)]
+    assert [c.text for c in verified] == ["Acme starts at 9 dollars per seat.", fixed_text]
+    assert _quotes(verified) == [GOOD_QUOTE, GOOD_QUOTE]
+    dropped = [e for e in events if isinstance(e, DroppedEvent)]
+    assert _quotes([d.claim for d in dropped]) == [BAD_QUOTE]
+    assert _counts(events) == (2, 3)
+    assert _repair_lines(caplog) == ["claim repair: pricing failing=2 repaired=1"]
+
+
+@pytest.mark.parametrize("repairs", [False, True], ids=["no-repair-factory", "no-failing-claim"])
+async def test_agent_written_claims_sharing_a_quote_both_count(
+    fake_keenable: FakeKeenable, sample_pack: DomainPack, repairs: bool
+) -> None:
+    backend = RecordingBackend([])
+    first = _draft(GOOD_QUOTE)
+    second = _draft(GOOD_QUOTE, text="Acme plans start at 9 dollars per seat.")
+    runner = _runner(fake_keenable, _agent(first, second), backend if repairs else None)
+
+    events = await _coordinated(runner, sample_pack)
+
+    assert _quotes([e.claim for e in events if isinstance(e, VerifiedEvent)]) == [
+        GOOD_QUOTE,
+        GOOD_QUOTE,
+    ]
+    assert _counts(events) == (2, 2)
+    assert backend.prompts == []
 
 
 async def test_repair_budget_is_two_generations_per_claim(sample_pack: DomainPack) -> None:
