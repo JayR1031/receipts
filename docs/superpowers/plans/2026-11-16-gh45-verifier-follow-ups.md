@@ -186,7 +186,7 @@ deps = ["unsigned"]
 parallel_safe = false
 model = "sonnet"
 exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && uv run pytest -q tests/test_verify_claim_numbers.py && uv run pytest -q tests/test_verify.py && uv run python scripts/verify_fuzz/run_baseline.py"
-state = "running"
+state = "judging"
 
 [[task]]
 id = "records"
@@ -260,3 +260,4 @@ The brief was amended the same minute to match (its "File scope", "Amended 2026-
 | 2026-11-18 11:16 | `counts-free` → `running`: worktree `.worktrees/gh45-counts-free`, branch `jay/gh-45-counts-free` from the integration head after this commit, implementer on `opus`. |
 | 2026-11-18 11:50 | `counts-free` → `judging`: head `ad4cf98` (2 files in scope; test diff is pure additions, 0 removed lines; `scripts/verify_fuzz` unchanged against `641eadd`). Orchestrator re-run: `bin/jig` exit 0; `test_verify_claim_numbers.py` 158 passed; `test_verify.py` 117 passed; **full `run_baseline.py` exit 0, 34 of 34 `ok`, 0 `ROSE`, 0 `FELL`** (the measurement's green run). Implementer: 31 of 31 new red cases by assertion on `b7d70f0`; five sabotages each red then green; the 20 `quote` lines byte-identical to `b7d70f0`'s. Literal-reading edges for the judge and `records`: "Pro costs 25 per seat." (no currency) is a 25 count and fails closed against "$25 per seat"; "free trials", "free 14-day trial", "free: trial" still add zero prices; "free-trial" does not; "No ads, free forever" is read as negated across the comma. |
 | 2026-11-18 12:25 | `counts-free` → `blocked`: judge FAIL, `docs/superpowers/plans/verdicts/2026-11-18-gh45-counts-free.md` (1 HIGH: `_TRIAL` is `trial\b`, so "free trials" still adds a zero price and a wrong `$0` verifies, against the brief's Goal; 4 LOW within the brief). Items 1 to 9 met. Re-planned as `counts-free-repair` (repair 1 of 3), `running` on the same branch and worktree; `records` now depends on it. LOW 2, 3, 4 → `records` limits and a flag to "main"; LOW 5 → the repair. |
+| 2026-11-18 12:50 | `counts-free-repair` → `judging`: head `021131e` (commits `3b60b79` fix, `021131e` comment; one logic line changed: `_TRIAL` `trial\b` → `trials?\b`; two red-first "free trials" cases). Orchestrator re-run: `bin/jig` exit 0; `test_verify_claim_numbers.py` 160 passed; `test_verify.py` 117 passed; full `run_baseline.py` exit 0, 34 of 34 `ok`. Judged on the whole branch `b7d70f0...021131e`. |
