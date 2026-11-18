@@ -23,13 +23,20 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
 
   The owner chose these rules over two widened-window variants (gh-33 attempts 4 and 5), which
   let wrong prices verify in other quote shapes. A number
-  token is the regex `[$€£¥]?\\d+(?:[.,]\\d+)*%?` on the normalized text; `19.99` is one token,
-  never split, and the currency sign and `%` are part of it. Tokens compare after
-  `_canonical_number`: thousands-separator commas removed (a comma followed by exactly three
-  digits, so `1,000 == 1000` while the decimal comma in `19,99` stays) and a zero decimal part
-  removed (`$20.00 == $20.0 == $20`; `$20.05` and `$20.50` stay). `normalize` writes `20 %` and
-  `20 percent` as `20%`. Number words and suffixes are out of scope: `three` is not `3`, `1.5k`
-  is not `1,500`, and `20 dollars` or `20 USD` is not `$20`.
+  token is `_NUMBER_TOKEN` on the normalized text: digits with `.` or `,` groups (`19.99` is one
+  token, never split), with a currency sign or `%` as part of it. The sign leads (`$20`), leads
+  a decimal point (`$.99`), or directly follows the digits (`25$`); after a leading sign, a `k`,
+  `m` or `b` that no letter or digit follows is part of the token (`$20k`, `$1.2m`; GitHub
+  issue #45, rule (d)), so `$5 max` and `$5/mo` stay `$5`. Tokens compare after
+  `_canonical_number`: a trailing sign moved to the front (`25$ == $25`), a leading point given
+  its zero (`$.99 == $0.99`), thousands-separator commas removed (a comma followed by exactly
+  three digits, so `1,000 == 1000` while the decimal comma in `19,99` stays), a suffix written
+  out (`$20k == $20,000`, `$1.2m == $1,200,000`) and a zero decimal part removed
+  (`$20.00 == $20.0 == $20`; `$20.05` and `$20.50` stay). `normalize` writes `20 %` and
+  `20 percent` as `20%`. Out of scope: number words (`three` is not `3`); `bn`, `mm`, `million`
+  and `thousand`, a space before a suffix, a suffix on an unsigned number (`1.5k` is not
+  `1,500`; `$1.5k` is) and a decimal comma before a suffix; and `20 dollars` or `20 USD` is not
+  `$20`.
   - **Exact path**: an occurrence of the quote counts only if neither of its edges falls inside
     a page number token. `basic is $19` inside `basic is $199`, `basic is $19.` inside
     `$19.99`, `99 per seat` inside `$19.99 per seat`, `save 20` inside `save 20%` and
@@ -140,7 +147,18 @@ _STAR = re.compile(r"\*")
 # strips _em_ and __strong__, keeps snake_case
 _UNDERSCORE_EMPHASIS = re.compile(r"(?<!\w)_+|_+(?!\w)")
 _WHITESPACE = re.compile(r"\s+")
-_NUMBER_TOKEN = re.compile(r"[$€£¥]?\d+(?:[.,]\d+)*%?")
+# On normalized (lower-case) text. A signed number: `$20`, `$19.99`, `$.99`, `$20k`, `$1.2m`,
+# `$20%`; the suffix only when no letter or digit follows (`$5mo` is `$5`). An unsigned one:
+# `20`, `1,000`, `20%`, or with its sign directly after the digits, `25$`, unless a number
+# follows the sign, which then leads that number (`5$20` is `5` and `$20`, as before).
+_NUMBER_TOKEN = re.compile(
+    r"[$€£¥](?:\d+(?:[.,]\d+)*|\.\d+)(?:[kmb](?!\w)|%)?"
+    r"|\d+(?:[.,]\d+)*(?:[$€£¥](?!\.?\d)|%)?"
+)
+_TRAILING_SIGN = re.compile(r"^(\d[\d.,]*)([$€£¥])$")  # `25$` -> `$25`
+_LEADING_POINT = re.compile(r"^([$€£¥])\.")  # `$.99` -> `$0.99`
+_SUFFIXED = re.compile(r"^([$€£¥])(\d+(?:\.\d+)?)([kmb])$")  # once thousands commas are gone
+_SUFFIX_SHIFT = {"k": 3, "m": 6, "b": 9}
 _THOUSANDS_COMMA = re.compile(r",(?=\d{3}(?!\d))")
 _ZERO_DECIMAL = re.compile(r"^([^.]*\d)\.00?(%?)$")  # one dot only: `1.0.0` is not `1.0`
 _VALUE_MARK = re.compile(r"[$€£¥%.,]")
@@ -261,13 +279,35 @@ def _numbers_at(body: str, spans: Sequence[tuple[int, int]], start: int, end: in
 
 
 def _canonical_number(token: str) -> str:
-    """One spelling per value: thousands commas and a zero decimal part removed.
+    """One spelling per value, for a `_NUMBER_TOKEN` token.
 
-    `1,000` -> `1000` (`19,99` unchanged: a comma before two digits is a decimal comma), then
-    `$20.00` and `$20.0` -> `$20` and `20.0%` -> `20%` (`$20.05`, `$20.50` and `1.0.0`
+    In order: a trailing sign moved to the front (`25$` -> `$25`); a leading decimal point given
+    its zero (`$.99` -> `$0.99`); thousands commas removed (`1,000` -> `1000`; `19,99` unchanged:
+    a comma before two digits is a decimal comma); a suffix written out (`$20k` -> `$20000`,
+    `$1.2m` -> `$1200000`; `$1,5k`, with a decimal comma, unchanged); then a zero decimal part
+    removed (`$20.00` and `$20.0` -> `$20`, `20.0%` -> `20%`; `$20.05`, `$20.50` and `1.0.0`
     unchanged). The currency sign and `%` stay.
     """
-    return _ZERO_DECIMAL.sub(r"\1\2", _THOUSANDS_COMMA.sub("", token))
+    out = _TRAILING_SIGN.sub(r"\2\1", token)
+    out = _LEADING_POINT.sub(r"\g<1>0.", out)
+    out = _THOUSANDS_COMMA.sub("", out)
+    out = _SUFFIXED.sub(_expand_suffix, out)
+    return _ZERO_DECIMAL.sub(r"\1\2", out)
+
+
+def _expand_suffix(match: re.Match[str]) -> str:
+    """`$1.2` with `m` -> `$1200000`: the decimal point moved 3, 6 or 9 places to the right.
+
+    Done on the digits, not with `float` or `Decimal`, so no amount is rounded. Leading zeros go
+    (`$0.5k` -> `$500`); digits left past the point stay (`$1.2345k` -> `$1234.5`).
+    """
+    sign, amount, suffix = match.groups()
+    whole, _, fraction = amount.partition(".")
+    point = len(whole) + _SUFFIX_SHIFT[suffix]
+    digits = whole + fraction.ljust(_SUFFIX_SHIFT[suffix], "0")
+    value = digits[:point].lstrip("0") or "0"
+    rest = digits[point:]
+    return f"{sign}{value}.{rest}" if rest else f"{sign}{value}"
 
 
 def _claim_values(text: str) -> list[str]:

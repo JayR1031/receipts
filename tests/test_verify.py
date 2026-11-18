@@ -876,6 +876,111 @@ def test_url_not_fetched_this_run_is_dropped(sample_pages: dict[str, FetchedPage
     assert dropped_reason(out) == "url not fetched this run"
 
 
+# --- suffixed, trailing-sign and leading-decimal prices (GitHub issue #45, rule (d)) --------
+# The claim-rule half of test_suffixed_trailing_and_leading_decimal_prices_are_one_number is in
+# tests/test_verify_claim_numbers.py.
+
+
+@pytest.mark.parametrize(
+    ("text", "quote", "note"),
+    [
+        (
+            "Enterprise $20k a year.",
+            "Enterprise $20",
+            "quote not found on page: numbers differ (quote has $20; page has $20k there; "
+            "partial_ratio=100.0)",
+        ),
+        (
+            "Enterprise $1.2M a year.",
+            "Enterprise $1.2",
+            "quote not found on page: numbers differ (quote has $1.2; page has $1.2m there; "
+            "partial_ratio=100.0)",
+        ),
+        (
+            "Pro costs 25$ a month.",
+            "Pro costs 25",
+            "quote not found on page: numbers differ (quote has 25; page has 25$ there; "
+            "partial_ratio=100.0)",
+        ),
+    ],
+    ids=["suffix-k", "suffix-m-after-a-decimal", "trailing-sign"],
+)
+def test_suffixed_trailing_and_leading_decimal_prices_are_one_number_on_the_page(
+    text: str, quote: str, note: str
+) -> None:
+    # Brief case 1. On 949741f the page's number token stopped before the `k`, `m` or trailing
+    # `$`, so each quote was a quote_exact match. The page's `$20k` is one token now: the quote
+    # ends inside it, falls through to the fuzzy rule, and the note names the page's whole token.
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method, out.verify_note) == (False, None, note)
+    assert not is_dropped(out)
+
+
+def test_suffixed_trailing_and_leading_decimal_prices_are_one_number_page_dollar_point_99() -> None:
+    # Brief case 4 on the page: `$.99` is one token, so a quote that drops the `$.` no longer
+    # matches the page's `99` (on 949741f it was a quote_fuzzy match).
+    url = "https://tokens.example/"
+    text = "Pro costs $.99 a month."
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, "Pro costs 99 a month"), pages, [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note is not None
+    assert "numbers differ (quote has 99; page has $.99 there;" in out.verify_note
+
+
+@pytest.mark.parametrize(
+    ("text", "quote"),
+    [
+        (
+            "Pro costs $25 a month for every seat on the team.",
+            "Pro costs 25$ a month for every seat on the team",
+        ),
+        (
+            "Pro costs $0.99 a month for every seat on the team.",
+            "Pro costs $.99 a month for every seat on the team",
+        ),
+        (
+            "The Enterprise plan for large organisations is $20,000 a year, billed annually.",
+            "The Enterprise plan for large organisations is $20k a year, billed annually",
+        ),
+    ],
+    ids=["trailing-sign", "leading-decimal", "suffix"],
+)
+def test_suffixed_trailing_and_leading_decimal_prices_are_one_number_on_the_page_spelt_another_way(
+    text: str, quote: str
+) -> None:
+    # Brief cases 3 and 4 on the page: `25$` is compared as `$25`, `$.99` as `$0.99` and `$20k`
+    # as `$20,000`. Not substrings, so this is the fuzzy path's per-place number check; on
+    # 949741f each quote number (`25`, `99`, `$20`) differed from the page's and was a miss.
+    url = "https://tokens.example/"
+    pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
+    out = verify_claim(quote_claim(url, quote), pages, [])
+    assert (out.verified, out.verify_method) == (True, "quote_fuzzy")
+
+
+def test_suffixed_trailing_and_leading_decimal_prices_are_one_number_probe_1() -> None:
+    # Brief, Verification 5, probe 1: on 949741f this claim verified, because the quote was a
+    # quote_exact match on "$20k" read as "$20".
+    url = "https://tokens.example/"
+    claim = Claim(
+        domain="pricing",
+        about="rival",
+        text="Enterprise is $20 a year.",
+        receipt=QuoteReceipt(url=url, quote="Enterprise $20"),
+    )
+    pages = {url: FetchedPage(url=url, text="Enterprise $20k a year.", fetched_at=T0, ok=True)}
+    out = verify_claim(claim, pages, [])
+    assert (out.verified, out.verify_method, out.verify_note) == (
+        False,
+        None,
+        "quote not found on page: numbers differ (quote has $20; page has $20k there; "
+        "partial_ratio=100.0)",
+    )
+    assert not is_dropped(out)
+
+
 # --- search receipts ----------------------------------------------------------------
 
 

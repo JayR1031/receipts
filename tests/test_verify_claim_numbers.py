@@ -322,6 +322,135 @@ def test_nonzero_cents_are_not_dropped(claim_text: str, missing: str) -> None:
     assert out.verify_note == f"claim numbers not in quote: {missing}"
 
 
+# --- suffixed, trailing-sign and leading-decimal prices (GitHub issue #45, rule (d)) --------
+# The quote-to-page half of test_suffixed_trailing_and_leading_decimal_prices_are_one_number is
+# in tests/test_verify.py. A miss note names each claim token as the normalized claim writes it
+# (`$1.2m`, `25$`, `$.99`), as `_missing_numbers` does for every token (`$20.00`, not `$20`).
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "quote", "missing"),
+    [
+        ("$20k a year", "$20 per seat per month", "$20k"),
+        ("Enterprise is $1.2M a year.", "Enterprise is $1.2 per hour", "$1.2m"),
+        ("Enterprise is $20 a year.", "Enterprise is $20k a year", "$20"),
+        ("Enterprise is $20m a year.", "Enterprise is $20k a year", "$20m"),
+        ("Enterprise is $20,000k a year.", "Enterprise is $20,000 a year", "$20,000k"),
+    ],
+    ids=[
+        "suffix-in-claim",
+        "suffix-after-a-decimal-in-claim",
+        "suffix-in-quote",
+        "other-suffix",
+        "suffix-on-the-quotes-digits",
+    ],
+)
+def test_suffixed_trailing_and_leading_decimal_prices_are_one_number_in_the_claim_rule(
+    claim_text: str, quote: str, missing: str
+) -> None:
+    # Brief case 2: on 949741f the token stopped before the suffix, so `$20k` in the claim (or in
+    # the quote) read as `$20` and every one of these verified.
+    url = "https://tokens.example/"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, f"{quote}."), [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note == f"claim numbers not in quote: {missing}"
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "quote"),
+    [
+        ("Enterprise is $20k a year.", "Enterprise is $20,000 a year"),
+        ("Enterprise is $20,000 a year.", "Enterprise is $20K a year"),
+        ("Enterprise is $1.2M a year.", "Enterprise is $1,200,000 a year"),
+        ("Enterprise is €1200000 a year.", "Enterprise is €1.2m a year"),
+        ("Enterprise is £1.5k a month.", "Enterprise is £1,500.00 a month"),
+        ("Enterprise is $2B in total.", "Enterprise is $2,000,000,000 in total"),
+    ],
+    ids=["k-in-claim", "k-in-quote", "m-after-a-decimal", "m-in-quote", "k-zero-cents", "b"],
+)
+def test_suffixed_trailing_and_leading_decimal_prices_are_one_number_same_amount_verifies(
+    claim_text: str, quote: str
+) -> None:
+    # Brief case 3: `$20k` = `$20,000`, `$1.2m` = `$1,200,000`. On 949741f the suffixed side read
+    # as `$20`, `$1.2`, `€1.2`, `£1.5` or `$2`, and each was a miss.
+    url = "https://tokens.example/"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, f"{quote}."), [])
+    assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
+
+
+def price_claim(claim_price: str, quote_price: str) -> tuple[Claim, dict[str, FetchedPage]]:
+    """`Pro costs <claim_price> a month.` citing the quote `Pro costs <quote_price> a month`,
+    and a page that holds the quote."""
+    url = "https://tokens.example/"
+    quote = f"Pro costs {quote_price} a month"
+    claim = claim_with_quote(f"Pro costs {claim_price} a month.", url, quote)
+    return claim, page(url, f"{quote}.")
+
+
+@pytest.mark.parametrize(
+    ("written", "signed", "other"),
+    [
+        ("25$", "$25", "$30"),
+        ("25€", "€25", "€30"),
+        ("25£", "£25", "£30"),
+        ("25¥", "¥25", "¥30"),
+        ("$.99", "$0.99", "$0.49"),
+        ("€.50", "€0.50", "€0.75"),
+    ],
+    ids=[
+        "trailing-dollar",
+        "trailing-euro",
+        "trailing-pound",
+        "trailing-yen",
+        "dollar-cents",
+        "euro",
+    ],
+)
+def test_suffixed_trailing_and_leading_decimal_prices_are_one_number_sign_after_or_point_first(
+    written: str, signed: str, other: str
+) -> None:
+    # Brief case 4: `25$` is extracted and compared as `$25`, and `$.99` as `$0.99`, in the claim
+    # and in the quote. On 949741f the claim's `25$` and `$.99` read as the bare integers `25`
+    # and `99`, which are not checked, so the wrong price verified; and the quote's read as `25`
+    # and `99`, so the signed spelling in the claim was a miss.
+    out = verify_claim(*price_claim(written, other), [])
+    assert (out.verified, out.verify_method) == (False, None)
+    assert out.verify_note == f"claim numbers not in quote: {written}"
+    for claim_price, quote_price in ((signed, written), (written, signed), (written, written)):
+        out = verify_claim(*price_claim(claim_price, quote_price), [])
+        assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
+
+
+@pytest.mark.parametrize(
+    "claim_text",
+    ["Pro is $5 max per seat.", "Pro is $5/mo.", "Pro is $5mo.", "Pro is $5 a month, max."],
+    ids=["space-then-max", "slash-mo", "mo-joined", "max-later"],
+)
+def test_a_letter_after_a_signed_number_is_a_suffix_only_when_the_word_ends_there(
+    claim_text: str,
+) -> None:
+    # Guard for rule (d), brief assumption 6: `k`, `m` or `b` is a suffix only directly after a
+    # signed number and when no letter or digit follows, so `$5 max`, `$5/mo` and `$5mo` still
+    # read `$5`. Green on 949741f by design; it turns red if the suffix swallows the `m` of `mo`.
+    url = "https://tokens.example/"
+    quote = "Pro is $5 a month"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, f"{quote}."), [])
+    assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
+
+
+@pytest.mark.parametrize(
+    ("claim_price", "quote_price"),
+    [("$20", "5$20"), ("$.99", "5$.99")],
+    ids=["sign-then-digits", "sign-then-point"],
+)
+def test_a_sign_between_two_numbers_leads_the_second(claim_price: str, quote_price: str) -> None:
+    # Guard for rule (d), brief assumption 7: a scraped table can join one cell's number to the
+    # next cell's price (`seats: 5$20`). A sign followed by a number leads that number, as on
+    # 949741f, so the quote holds `5` and `$20`, not `5$` and `20`. Green on 949741f by design.
+    out = verify_claim(*price_claim(claim_price, f"seats: {quote_price}"), [])
+    assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
+
+
 # --- precedence and scope ----------------------------------------------------------------
 
 
