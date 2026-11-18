@@ -132,7 +132,7 @@ deps = ["fuzz-port-repair"]
 parallel_safe = false
 model = "opus"
 exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && uv run python scripts/verify_fuzz/run_baseline.py --kinds quote,control && { uv run python scripts/verify_fuzz/run_baseline.py; test $? -eq 1; }"
-state = "planned"
+state = "running"
 
 [[task]]
 id = "token"
@@ -235,3 +235,4 @@ The brief was amended the same minute to match (its "File scope", "Amended 2026-
 | 2026-11-18 07:25 | `fuzz-port-repair` → `merged`: judge PASS, `docs/superpowers/plans/verdicts/2026-11-18-gh45-fuzz-port-repair.md` (0 HIGH, 2 MEDIUM, 1 LOW). Merged into the integration branch as `3e12fc2` (plain merge of `jay/gh-45-fuzz-port` at `ef30bfd`); on `3e12fc2` `bin/jig` exit 0 and `run_baseline.py` exit 0, 20 of 20 `ok`. MEDIUM 2 (evidence) closed from the implementer's report: sabotage `fuzz_place_all.py:34` and `:51` each exit 1 `PIN MISMATCH`, reverts exit 0; scratch `ROSE` exit 1; scratch fixed denominator exit 1; `--kinds ,` exit 2; 12 of 12 durable-vs-committed diffs exit 0. MEDIUM 1 and LOW 3 carried into `fuzz-claims` (dispatch note and gate). `fuzz-claims` is ready. |
 | 2026-11-18 07:40 | `dedupe-docstrings` → `merged`: judge PASS, `docs/superpowers/plans/verdicts/2026-11-18-gh45-dedupe-docstrings.md` (1 LOW, accepted without action: rule and exception are adjacent sentences, as ADR-0007 line 18). Merged as `040b8b7`. On `040b8b7`: `bin/jig` exit 0; `run_baseline.py` exit 0, 20 of 20 `ok`; `pytest -q -m "not integration" -rs` with the seven variables unset: 692 passed, 14 deselected (marker `integration`), 0 skipped, exit 0. |
 | 2026-11-18 07:41 | **Wave A complete** (`fuzz-port` blocked → `fuzz-port-repair` merged; `dedupe` merged; `dedupe-docstrings` merged). Coordinator news recorded in the `records` note: PR #53 merged as `3b2673c`; the README `$20k` sentence and the LinkedIn post. Nothing running. Next: `bin/plan-check <this file> --ready` → `fuzz-claims`. Orchestrator hands back to "main" for the end-of-wave report. |
+| 2026-11-18 07:50 | Resumed on the coordinating session's instruction ("main" is reachable; `records` waits for "main" to confirm the README wording for the LinkedIn sentence). `fuzz-claims` → `running`: worktree `.worktrees/gh45-fuzz-claims`, branch `jay/gh-45-fuzz-claims` from `856e371`, implementer on `opus`. |
