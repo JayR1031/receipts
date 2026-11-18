@@ -16,8 +16,10 @@ verify goes to a `ClaimRepairer` (Mellea in production, `repair.py`) before any 
 most `MAX_REPAIRS` model calls per claim and only while the pack's `timeout_s`, counted from the
 start of `run`, lasts. The `claim` event then carries the claim the Verifier judges: the repaired
 one if a repair passed, else the agent's own. A repair whose receipt is identical to another of
-this specialist's claims' receipts is not accepted (GitHub issue #45), so one piece of evidence
-cannot back a second claim through a repair; claims the agent wrote on one receipt all count.
+this specialist's claims' receipts is not accepted (GitHub issue #45): the original then goes
+to the Verifier unchanged. A repair that keeps its own claim's receipt is accepted, even when
+another claim the agent wrote cites the same one; claims the agent wrote on one receipt all
+count.
 With no factory (the default) nothing changes.
 
 Events are yielded after the agent finishes, in tool-call order: the tools run synchronously
