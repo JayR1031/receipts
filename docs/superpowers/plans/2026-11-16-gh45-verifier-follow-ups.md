@@ -80,7 +80,7 @@ deps = []
 parallel_safe = true
 model = "sonnet"
 exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && uv run python scripts/verify_fuzz/run_baseline.py"
-state = "running"
+state = "judging"
 
 [[task]]
 id = "dedupe"
@@ -200,3 +200,4 @@ The brief was amended the same minute to match (its "File scope", "Amended 2026-
 | 2026-11-18 06:17 | Integration branch `jay/gh-45-verifier-follow-ups` created at `.worktrees/gh45` from `origin/main` `949741f`; brief and plan committed as `4b2e79a`. `origin/main` re-read at 06:16:48: still `949741f`; PR #53 open. |
 | 2026-11-18 06:18 | `fuzz-port` → `running`: worktree `.worktrees/gh45-fuzz-port`, branch `jay/gh-45-fuzz-port` from `4b2e79a`, implementer on `sonnet`. |
 | 2026-11-18 06:18 | `dedupe` → `running`: worktree `.worktrees/gh45-dedupe`, branch `jay/gh-45-dedupe` from `4b2e79a`, implementer on `opus`. |
+| 2026-11-18 06:25 | `fuzz-port` → `judging`: head `a9d2b82` on `jay/gh-45-fuzz-port`. Exit command re-run by the orchestrator: `bin/jig` format, lint, types, tests all `ok`; `run_baseline.py` exit 0, 20 of 20 comparison lines `ok`, 0 `ROSE`, 0 `FELL`. Implementer note: a `PRICES` value rename (sabotage row 10) changes the durable-vs-committed diff but not `run_baseline.py`'s counts; the judge checks row 10 itself. |
