@@ -120,7 +120,7 @@ deps = ["dedupe"]
 parallel_safe = false
 model = "sonnet"
 exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY uv run pytest -q tests/test_harness_repair.py"
-state = "running"
+state = "judging"
 
 [[task]]
 id = "fuzz-claims"
@@ -231,3 +231,4 @@ The brief was amended the same minute to match (its "File scope", "Amended 2026-
 | 2026-11-18 06:55 | `fuzz-port-repair` → `judging`: head `ef30bfd` (adds `scripts/verify_fuzz/pinned.sha256`, changes `run_baseline.py`; the six scripts and `expected.txt` untouched). Orchestrator re-run: `shasum -a 256 -c pinned.sha256` 6 of 6 OK; `bin/jig` exit 0; `run_baseline.py` exit 0, 20 of 20 `ok`. Judged on the whole branch `4b2e79a...ef30bfd`. |
 | 2026-11-18 07:05 | `dedupe` → `merged`: judge PASS, `docs/superpowers/plans/verdicts/2026-11-18-gh45-dedupe.md` (0 HIGH, 0 MEDIUM, 4 LOW). Merged into the integration branch as `6dc259c` (plain merge, `a38a187`); `bin/jig` on `6dc259c` exit 0. LOW 1 and 2 (docstrings omit the keeps-own-receipt exception) → new task `dedupe-docstrings`; LOW 3 (the `:186` change and the red runs) → carried into the PR description by `records`; LOW 4 (this plan's gate wording) → corrected in the `dedupe` note. |
 | 2026-11-18 07:06 | `dedupe-docstrings` → `running`: worktree `.worktrees/gh45-dedupe-docstrings`, branch `jay/gh-45-dedupe-docstrings` from `6dc259c`, implementer on `sonnet`. `records` now depends on it instead of `dedupe`. |
+| 2026-11-18 07:12 | `dedupe-docstrings` → `judging`: head `62370e0` (2 files, 9 insertions, 5 deletions). Implementer: jig attempt 1 failed (line length), attempt 2 green. Orchestrator re-run: `bin/jig` exit 0; `tests/test_harness_repair.py` 18 passed, exit 0. |
