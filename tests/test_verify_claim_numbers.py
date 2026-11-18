@@ -635,6 +635,226 @@ def test_unsigned_prices_verification_5_probes(
     assert (out.verified, out.verify_method, out.verify_note) == outcome
 
 
+@pytest.mark.parametrize(
+    ("claim_text", "quote"),
+    [
+        ("Pro costs 25.0 a month.", "Pro costs 25 dollars a month"),
+        ("Pro includes 2,500 seats.", "Pro is 2,500 dollars"),
+        ("Pro includes 25 seats.", "Pro is 25 dollars"),
+    ],
+    ids=["decimal-against-unsigned", "separator-against-unsigned", "count-against-unsigned"],
+)
+def test_a_quotes_unsigned_price_keeps_its_own_number_in_the_claim_rule(
+    claim_text: str, quote: str
+) -> None:
+    # The `unsigned` verdict's MEDIUM 1, brief assumption 4: the quote's signed readings are added
+    # to its own tokens, not put in their place, so the quote's `25` and `2,500` still back a
+    # claim's `25.0`, `2,500` or count `25 seats` (assumption 2: a count compares its value).
+    # All three pass on the `unsigned` head, the third because `25` was not yet a count; all three
+    # turn red if `_quote_values` keeps only the signed readings.
+    url = "https://tokens.example/"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, f"{quote}."), [])
+    assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
+
+
+# --- counts with units (GitHub issue #45, rule (a)) ----------------------------------------
+# A bare integer that a unit from the closed list follows is a claim value (brief assumptions 1,
+# 2 and 5). It is read after the signed-price rewrite of rule (c), so a number that rewrite reads
+# as a price is never also a count.
+
+MISS = False, None
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "quote", "outcome"),
+    [
+        ("Max includes 500 credits.", "Max includes 18,000 credits", (*MISS, "500")),
+        ("Team includes 50 seats.", "Team includes 25 seats", (*MISS, "50")),
+        ("Team includes 10 users.", "Team includes 5 users", (*MISS, "10")),
+        ("Team allows 20 members.", "Team allows 15 members", (*MISS, "20")),
+        ("Pro allows 3 projects.", "Pro allows 30 projects", (*MISS, "3")),
+        ("Pro sends 1000 messages.", "Pro sends 100 messages", (*MISS, "1000")),
+        ("Pro allows 60 requests per minute.", "Pro allows 600 requests per minute", (*MISS, "60")),
+        ("Pro includes 8000 tokens.", "Pro includes 80,000 tokens", (*MISS, "8000")),
+        ("Pro includes 90 minutes.", "Pro includes 900 minutes", (*MISS, "90")),
+        ("Pro includes 24 hours of compute.", "Pro includes 12 hours of compute", (*MISS, "24")),
+        ("Starter has 1 seat.", "Starter has 2 seats", (*MISS, "1")),
+        ("Max includes 500credits.", "Max includes 18,000 credits", (*MISS, "500")),
+        ("Team is a 50-seat plan.", "Team is a 25-seat plan", (*MISS, "50")),
+        ("Team has 5 active users.", "Team has 50 active users", (*MISS, "5")),
+        ("Max has 1500 hosted-ai credits.", "Max has 18,000 hosted-ai credits", (*MISS, "1500")),
+        ("Max has 500 credits and 5 seats.", "Max has 18,000 credits", (*MISS, "5, 500")),
+        ("Max includes 18000 credits.", "Max includes 18,000 credits", (True, "quote_exact", None)),
+        ("Max includes 18,000 credits.", "Max includes 18000 credits", (True, "quote_exact", None)),
+        ("Team is a 50-seat plan.", "Team includes 50 seats", (True, "quote_exact", None)),
+        ("Max has 1500 hosted-ai credits.", "Max has 1,500 credits", (True, "quote_exact", None)),
+        ("Max includes 500 credits.", "Max includes 500 seats", (True, "quote_exact", None)),
+        ("Team has 5 very active users.", "Team has 50 users", (True, "quote_exact", None)),
+        (
+            "Pro keeps 30 days of history.",
+            "Pro keeps 90 days of history",
+            (True, "quote_exact", None),
+        ),
+    ],
+    ids=[
+        "credits",
+        "seats",
+        "users",
+        "members",
+        "projects",
+        "messages",
+        "requests",
+        "tokens",
+        "minutes",
+        "hours",
+        "singular",
+        "nothing-between",
+        "hyphen",
+        "one-word-between",
+        "one-hyphenated-word-between",
+        "two-counts-sorted",
+        "separator-dropped-verifies",
+        "separator-added-verifies",
+        "hyphen-against-space-verifies",
+        "word-between-against-none-verifies",
+        "other-unit-same-value-verifies",
+        "two-words-between-is-not-a-count",
+        "unit-off-the-list-is-not-a-count",
+    ],
+)
+def test_counts_with_units_in_the_claim_are_checked(
+    claim_text: str, quote: str, outcome: tuple[bool, str | None, str | None]
+) -> None:
+    # Brief (a): on 949741f a bare integer was never checked, so each miss here verified. A count
+    # compares its value, not its unit (assumption 2, a limit): `500 seats` backs `500 credits`.
+    # The note names a count as the claim writes it (assumption 5). The last two cases pin what
+    # is not a count: two words between (assumption 1 allows one) and a unit off the list.
+    url = "https://tokens.example/"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, f"{quote}."), [])
+    verified, method, missing = outcome
+    note = None if missing is None else f"claim numbers not in quote: {missing}"
+    assert (out.verified, out.verify_method, out.verify_note) == (verified, method, note)
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "missing"),
+    [
+        ("Pro costs $ 25 per seat.", None),
+        ("Pro costs USD 25 per seat.", None),
+        ("Pro costs 25 dollars per seat.", None),
+        ("Pro costs $ 30 per seat.", "$30"),
+        ("Pro costs USD 30 per seat.", "$30"),
+    ],
+    ids=["sign-space", "usd-before", "dollars-after", "sign-space-wrong", "usd-before-wrong"],
+)
+def test_a_number_read_as_a_signed_price_is_not_also_a_count(
+    claim_text: str, missing: str | None
+) -> None:
+    # The `fuzz-claims` verdict's MEDIUM 1: `$ 25 per seat` has a number, one word and a unit, the
+    # shape of a count (assumption 1). The signed rewrite of rule (c) runs first and takes the
+    # number (`$25`), so no bare `25` is left to read as 25 seats, which the quote's `$25` would
+    # not back. Green on the `unsigned` head by design; red if the count reading runs first.
+    url = "https://tokens.example/"
+    quote = "Pro costs $25 per seat"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, f"{quote}."), [])
+    if missing is None:
+        assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
+    else:
+        note = f"claim numbers not in quote: {missing}"
+        assert (out.verified, out.verify_method, out.verify_note) == (False, None, note)
+
+
+# --- a negated or trial "free" (GitHub issue #45, rule (b)) --------------------------------
+# A `free` with `not`, `no`, `never`, `isn't`, `isnt`, `aren't`, `arent`, `without` or `non` in
+# the two words before it, or `trial` right after it, adds no zero price (brief assumption 8).
+
+
+@pytest.mark.parametrize(
+    ("quote", "verified"),
+    [
+        ("Starter is not free", False),
+        ("There is no free plan", False),
+        ("Starter is never free", False),
+        ("Starter isn't free", False),
+        ("Starter isn’t free", False),
+        ("Starter isnt free", False),
+        ("Starter plans aren't free", False),
+        ("Starter plans arent free", False),
+        ("Starter comes without a free tier", False),
+        ("Starter is a non-free plan", False),
+        ("Starter is not really free", False),
+        ("Start a free trial", False),
+        ("Starter has a free-trial period", False),
+        ("Free trials on every plan", False),
+        ("Start free trials today", False),
+        ("Starter is free", True),
+        ("Starter: no card required, free for small teams", True),
+        ("Starter has a free tier", True),
+        ("Starter is free and shows no ads", True),
+        ("Starter is free, and Pro has a free trial", True),
+    ],
+    ids=[
+        "not",
+        "no",
+        "never",
+        "isn't",
+        "isn't-curly",
+        "isnt",
+        "aren't",
+        "arent",
+        "without-two-words-before",
+        "non",
+        "not-two-words-before",
+        "trial",
+        "trial-hyphen",
+        "trials-plural-first-word",
+        "trials-plural-mid-quote",
+        "plain-free-verifies",
+        "negation-three-words-before-verifies",
+        "free-then-another-word-verifies",
+        "negation-after-verifies",
+        "one-plain-free-beside-a-trial-verifies",
+    ],
+)
+def test_negated_or_trial_free_does_not_cover_a_zero_price(quote: str, verified: bool) -> None:
+    # Brief (b): on 949741f any standalone `free` counted, so every miss here verified. One
+    # `free` that is neither negated nor a trial still adds the zero prices.
+    url = "https://tokens.example/"
+    out = verify_claim(claim_with_quote("Starter is $0.", url, quote), page(url, f"{quote}."), [])
+    if verified:
+        assert (out.verified, out.verify_method, out.verify_note) == (True, "quote_exact", None)
+    else:
+        note = "claim numbers not in quote: $0"
+        assert (out.verified, out.verify_method, out.verify_note) == (False, None, note)
+
+
+@pytest.mark.parametrize(
+    ("claim_text", "quote", "text", "outcome"),
+    [
+        (
+            "Starter is $0.",
+            "Starter is not free",
+            "Starter is not free.",
+            (False, None, "claim numbers not in quote: $0"),
+        ),
+        (
+            "Mel Max has 500 credits.",
+            "Max includes 18,000 credits",
+            "Max includes 18,000 credits.",
+            (False, None, "claim numbers not in quote: 500"),
+        ),
+    ],
+    ids=["probe-4", "probe-5"],
+)
+def test_counts_and_free_verification_5_probes(
+    claim_text: str, quote: str, text: str, outcome: tuple[bool, str | None, str | None]
+) -> None:
+    # Brief, Verification 5, probes 4 and 5. On 949741f both verified.
+    url = "https://tokens.example/"
+    out = verify_claim(claim_with_quote(claim_text, url, quote), page(url, text), [])
+    assert (out.verified, out.verify_method, out.verify_note) == outcome
+
+
 # --- precedence and scope ----------------------------------------------------------------
 
 
