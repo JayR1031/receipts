@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/receipts-banner.png" alt="Receipts: every claim carries a receipt. AI agents compare two companies, and a plain-code verifier checks every quote." width="100%">
+<h1><img src="docs/assets/receipts-banner.png" alt="Receipts: every claim carries a receipt. AI agents compare two companies, and a plain-code verifier checks every quote." width="100%"></h1>
 
 <br>
 
@@ -12,7 +12,7 @@ checked against the web page or search result it came from.
 ![python >=3.11](https://img.shields.io/badge/python-%E2%89%A53.11-3776AB)
 ![Miami AI Hackathon](https://img.shields.io/badge/Miami%20AI%20Hackathon-tracks%2002%20%2B%2008-10b981)
 
-### [Try the live app](https://receipts-h745.onrender.com) &nbsp;·&nbsp; [Talk to Receipts](https://receipts-landing-nine.vercel.app) &nbsp;·&nbsp; [How it works](#how-it-works) &nbsp;·&nbsp; [The verifier](#the-verifier)
+**[Try the live app](https://receipts-h745.onrender.com) &nbsp;·&nbsp; [Talk to Receipts](https://receipts-landing-nine.vercel.app) &nbsp;·&nbsp; [How it works](#how-it-works) &nbsp;·&nbsp; [The verifier](#the-verifier)**
 
 <img src="docs/assets/ui-theme-battlecard.png" alt="The Receipts UI replaying its built-in demo run: the progress log, then a battlecard with a verified claim, its quote and the page it came from" width="860">
 
@@ -261,9 +261,10 @@ lower-cased, whitespace collapsed.
 | Search | Query was never searched this run | not verified (dropped) | `dropped: search query not logged this run` |
 | Search | Query logged, but no row with that rank and URL | not verified | `no logged row for query at rank N with that url` |
 
-The number rules in plain words, the known limits (plan labels next to a price are not checked,
-for one; issue #45 tracks them) and seven worked examples with the verifier's real output are in
-**[docs/verifier.md](docs/verifier.md)**.
+The number rules in plain words, the known limits and seven worked examples with the verifier's
+real output are in **[docs/verifier.md](docs/verifier.md)**. Two of the limits: plan labels next to
+a price are not checked, and `$20k` in a claim is read as `$20`. Issue #45 tracks all the limits
+but one, which is by design.
 
 ## Add a specialist in one YAML file
 
