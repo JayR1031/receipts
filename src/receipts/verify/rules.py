@@ -81,11 +81,17 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   unsigned prices read as signed (below), must also be a value of the normalized quote, compared
   as above: one of its number tokens, or the signed reading of one of its unsigned prices. A
   value token is a number token with a currency sign, a `%`, a decimal part or a thousands
-  separator (`$20`, `20%`, `19.5`, `2,500`). A bare integer is not checked, so a year (`As of
-  2025`), a plan or model name (`Pro 2`, `GPT-4`), `24/7` or a date need not be in the quote.
-  Known limit: a bare integer count is not checked either, so `500 credits` or `50 seats` in the
-  claim verifies when the quote lacks it, and `18000 credits` is unchecked while `18,000
-  credits` is checked.
+  separator (`$20`, `20%`, `19.5`, `2,500`), or a count (next). Any other bare integer is not
+  checked, so a year (`As of 2025`), a plan or model name (`Pro 2`, `GPT-4`), `24/7` or a date
+  need not be in the quote.
+  **Counts with units** (GitHub issue #45, rule (a)): a bare integer followed by `credit`,
+  `seat`, `user`, `member`, `project`, `message`, `request`, `token`, `minute` or `hour`,
+  singular or plural, with nothing, one space or one hyphen between (`500credits`, `500
+  credits`, `50-seat`) or one other word between (`5 active users`, `1500 hosted-ai credits`),
+  is a count. So `500 credits` in the claim misses a quote with `18,000 credits`, which backs
+  `18000 credits`. It is read after the unsigned prices (below), so `$ 25 per seat` is the
+  price `$25` and not also 25 seats. Known limit: a count compares its value, not its unit, so
+  `500 seats` in the quote backs `500 credits` in the claim.
   **Unsigned prices** (GitHub issue #45, rule (c); the claim rule only): a number followed by
   one space and `dollar`, `dollars`, `usd`, `euro`, `euros`, `eur`, `gbp`, `jpy` or `yen`;
   `usd`, `eur`, `gbp` or `jpy` followed by one space and a number; a sign followed by one space
@@ -99,8 +105,11 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   A name or date with a decimal point (`GPT-4.5`, `14.11.2026`) is a value token and is checked.
   The word `free` in the quote matches a zero price in the claim (`$0`, `€0`, `£0`, `¥0`,
   `$0.00` and the like, and so `0 dollars`), and nothing else: not `$5`, not `$0.50`, and not
-  `freedom`. Known limit: any standalone `free` anywhere in the quote counts, including `not
-  free`, `free trial` and another plan's free tier.
+  `freedom`. A negated or trial `free` does not count (GitHub issue #45, rule (b)): one with
+  `not`, `no`, `never`, `isn't`, `isnt`, `aren't`, `arent`, `without` or `non` among the two
+  words before it (`not free`, `no free plan`, `non-free`), or with `trial` directly after it
+  (`free trial`). Known limit: any other standalone `free` anywhere in the quote counts,
+  including another plan's free tier.
   A miss (not dropped) has the note `claim numbers not in quote: <values>`, sorted and
   deduplicated. Each value is named in its signed reading, the one spelling for rules (c) and
   (d): the sign in front and a leading point given its zero (`25 dollars`, `$ 25` and `25$` are
@@ -178,6 +187,21 @@ _VALUE_MARK = re.compile(r"[$€£¥%.,]")
 _PERCENT = re.compile(r"(?<=\d) ?(?:%|percent\b)")  # `20 %`, `20 percent` -> `20%`
 _FREE = re.compile(r"\bfree\b")
 _ZERO_PRICES = ("$0", "€0", "£0", "¥0")
+# Rule (b), on the normalized quote (brief assumption 8): a `free` that one of these words comes
+# within the two words before, or that `trial` directly follows, adds no zero price. A word is
+# letters and digits with inner apostrophes, so `isn't` is one word and `non-free` is `non` and
+# `free`; punctuation between words does not end the window.
+_WORD = re.compile(r"\w+(?:'\w+)*")
+_NEGATIONS = frozenset({"not", "no", "never", "isn't", "isnt", "aren't", "arent", "without", "non"})
+_NEGATION_WINDOW = 2
+_TRIAL = re.compile(r"[ -]trial\b")  # `free trial`, `free-trial`; not `free trials`, `free: trial`
+# Rule (a), matched where a bare integer ends, on the text after `_signed_prices` (brief
+# assumption 1): a unit from the closed list, singular or plural and ending its word, after
+# nothing, one space or one hyphen (`500credits`, `500 credits`, `50-seat`), or after one other
+# word with a space or hyphen on each side (`5 active users`, `1500 hosted-ai credits`).
+_COUNT_UNITS = "credit|seat|user|member|project|message|request|token|minute|hour"
+_GAP_WORD = r"[^\W\d_]+(?:-[^\W\d_]+)*"  # letters only, hyphens inside: `active`, `hosted-ai`
+_COUNT_UNIT = re.compile(rf"(?:[ -]{_GAP_WORD}[ -]|[ -]?)(?:{_COUNT_UNITS})s?\b")
 # Rule (c), for the claim rule only, on normalized text: an unsigned price. A number, one space
 # and a currency word or sign (`25 dollars`, `25 €`); a currency code, one space and a number
 # (`usd 25`); or a sign, one space and a number (`$ 25`). No number inside a longer token is read
@@ -384,16 +408,43 @@ def _claim_values(text: str) -> list[str]:
        `usd 25`, `$ 25` and `25 €` become `$25` and `€25` in the text. This reading consumes the
        number: it now carries its sign, so no bare `25` is left for a later reading (`$ 25 per
        seat` is the price `$25`, and not also 25 seats).
-    3. `_NUMBER_TOKEN` over the text of step 2. A token with `$ € £ ¥ % . ,` is a value; a bare
-       integer (`2025`, `Pro 2`, `24/7`, `GPT-4`) is left out (module docstring).
-    4. Each value in its signed reading (`_signed_reading`: `25$` -> `$25`, `$.99` -> `$0.99`),
-       the spelling the miss note shows.
-
-    A later reading (rule (a), counts with units) takes only the bare integers that step 3
-    leaves out, from the text of step 2, so it never sees a number that step 2 read as a price.
+    3. `_NUMBER_TOKEN` over the text of step 2. A token with `$ € £ ¥ % . ,` is a value.
+    4. Counts with units (rule (a), `_is_value`): a bare integer that step 3 leaves out is a
+       value when a unit follows it in the text of step 2 (`500 credits`, `50-seat`, `5 active
+       users`), so it never sees a number that step 2 read as a price. Any other bare integer
+       (`2025`, `Pro 2`, `24/7`, `GPT-4`) is left out (module docstring).
+    5. Each value in its signed reading (`_signed_reading`: `25$` -> `$25`, `$.99` -> `$0.99`),
+       the spelling the miss note shows. A count has no sign and is named as written (`500`).
     """
-    tokens = _NUMBER_TOKEN.findall(_signed_prices(normalize(text)))
-    return [_signed_reading(tok) for tok in tokens if _VALUE_MARK.search(tok)]
+    signed = _signed_prices(normalize(text))
+    tokens = _NUMBER_TOKEN.finditer(signed)
+    return [_signed_reading(tok.group()) for tok in tokens if _is_value(signed, tok)]
+
+
+def _is_value(text: str, token: re.Match[str]) -> bool:
+    """True iff a `_NUMBER_TOKEN` match in the claim `text` is a value the quote must back.
+
+    It is when it carries `$ € £ ¥ % . ,` (`$20`, `20%`, `19.5`, `2,500`), or when it is a bare
+    integer that a unit follows (`_COUNT_UNIT`, rule (a)): `500 credits` is checked, `2025` is not.
+    A count compares its value only (brief assumption 2), so `500 seats` backs `500 credits`.
+    """
+    if _VALUE_MARK.search(token.group()):
+        return True
+    return _COUNT_UNIT.match(text, token.end()) is not None
+
+
+def _covers_zero(quote: str, free: re.Match[str]) -> bool:
+    """True iff this `_FREE` match in the normalized `quote` stands for a zero price (rule (b)).
+
+    It does not when `not`, `no`, `never`, `isn't`, `isnt`, `aren't`, `arent`, `without` or
+    `non` is one of the two words before it (`not free`, `no free plan`, `not really free`,
+    `non-free`), or when `trial` directly follows it (`free trial`). A negation three words
+    before does not count (`no card required, free`), nor one after (`free and no ads`).
+    """
+    before = _WORD.findall(quote, 0, free.start())[-_NEGATION_WINDOW:]
+    if _NEGATIONS.intersection(before):
+        return False
+    return _TRIAL.match(quote, free.end()) is None
 
 
 def _quote_values(quote: str) -> list[str]:
@@ -403,11 +454,14 @@ def _quote_values(quote: str) -> list[str]:
     `_signed_prices(quote)`; and a zero price when it says `free`. For the claim rule only:
     `_match_quote` reads the quote as written. The signed readings are added to the quote's own
     tokens, not put in their place (brief assumption 4), so a quote `25 dollars` backs a claim's
-    `$25` and a claim's bare `25`. A claim's `$0` or `$0.00` is the quote's "free" (live run
-    run-6a5fe9499c4d). The word must stand alone, so "freedom" does not count.
+    `$25` and a claim's count `25 seats`. A claim's `$0` or `$0.00` is the quote's "free" (live
+    run run-6a5fe9499c4d). The word must stand alone, so "freedom" does not count, and one `free`
+    that is neither negated nor a trial is enough (`_covers_zero`, rule (b)): `not free` and
+    `free trial` add no zero price, while `free, and pro has a free trial` does.
     """
     tokens = [*_NUMBER_TOKEN.findall(quote), *_NUMBER_TOKEN.findall(_signed_prices(quote))]
-    return [*tokens, *_ZERO_PRICES] if _FREE.search(quote) else tokens
+    says_free = any(_covers_zero(quote, free) for free in _FREE.finditer(quote))
+    return [*tokens, *_ZERO_PRICES] if says_free else tokens
 
 
 def _missing_numbers(tokens: Iterable[str], reference: Iterable[str]) -> list[str]:
