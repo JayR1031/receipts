@@ -255,7 +255,7 @@ lower-cased, whitespace collapsed.
 | Quote | Quote is an exact substring of the page | `quote_exact` | none |
 | Quote | Exact substring, but an edge of the match cuts a page number (`$19` inside `$199`) | falls through to the fuzzy check | |
 | Quote | Fuzzy match: `rapidfuzz` `partial_ratio` at least 90, the match covers the whole quote, and each number in the quote is the page's number at the same place in the match | `quote_fuzzy` | `fuzzy match: partial_ratio=… >= 90` |
-| Quote | The quote is on the page, but a value in the claim (a price written with a currency sign, a `%`, a decimal or a thousands number) is not in the quote | not verified | `claim numbers not in quote: …` |
+| Quote | The quote is on the page, but a value in the claim (a price with a currency sign or written out as `25 dollars` or `$ 25`, a `%`, a decimal, a thousands number, or a count such as `500 credits`) is not in the quote | not verified | `claim numbers not in quote: …` |
 | Quote | Anything else | not verified | `quote not found on page: …` with the reason |
 | Search | Same query, rank and URL as a row logged this run | `search_log` | none |
 | Search | Query was never searched this run | not verified (dropped) | `dropped: search query not logged this run` |

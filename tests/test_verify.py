@@ -700,11 +700,11 @@ def test_quote_price_does_not_skip_the_pages_price_to_the_next_plans(text: str, 
 def test_known_limit_a_dropped_plan_label_attaches_another_plans_price(
     text: str, quote: str
 ) -> None:
-    # Known limit, accepted by the owner (module docstring; tracked in GitHub issue #45): only
-    # numbers are compared, not plan labels. These quotes drop "max", the alignment pairs the
-    # quote's last price with Pro's, and the wrong price verifies (as on main). They are the
-    # gh-33 round-2 body claims check's counter-examples. This test pins the limit so a fix to
-    # it updates the record too.
+    # Known limit (e), accepted by the owner on 2026-11-18 and in the module docstring's limits
+    # list: only numbers are compared, not plan labels. These quotes drop "max", the alignment
+    # pairs the quote's last price with Pro's, and the wrong price verifies (as on main). They
+    # are the gh-33 round-2 body claims check's counter-examples. This test pins the limit so a
+    # fix to it updates the record too.
     url = "https://tokens.example/"
     pages = {url: FetchedPage(url=url, text=text, fetched_at=T0, ok=True)}
     out = verify_claim(quote_claim(url, quote), pages, [])
