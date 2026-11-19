@@ -230,7 +230,7 @@ deps = ["records-text"]
 parallel_safe = false
 model = "sonnet"
 exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && git diff --exit-code c1201d7 -- src tests scripts README.md"
-state = "judging"
+state = "merged"
 ```
 
 ## Per-task dispatch notes and judge gates
@@ -310,3 +310,4 @@ Then `records` runs as planned: `origin/main` (`3b2673c`) merged first; the whol
 | 2026-11-19 21:00 | `records-text` → `merged`: judge PASS, `docs/superpowers/plans/verdicts/2026-11-19-gh45-records-text.md` (0 HIGH, 0 MEDIUM, 3 LOW, all wording in `docs/verifier.md:58-64`). Merged into the integration branch. LOW 1 ("more wrong prices verify" is false for `fuzz_place2`, 2 against 22) is a Rule Zero sentence, so the three LOWs go to `records-text-2` with the judge's exact wording rather than ship. |
 | 2026-11-19 21:01 | `records-text-2` → `running`: worktree `.worktrees/gh45-records-text-2`, branch `jay/gh-45-records-text-2` from the integration head after this commit, implementer on `sonnet`. |
 | 2026-11-19 21:20 | `records-text-2` → `judging`: head `8f5876a` (one file, `docs/verifier.md:58-64`, the judge's wording for the three LOWs). Orchestrator re-run: `bin/jig` exit 0; `git diff --exit-code c1201d7 -- src tests scripts README.md` exit 0; no line over 100 characters in `:53-70`. |
+| 2026-11-19 21:40 | `records-text-2` → `merged`: judge PASS, `docs/superpowers/plans/verdicts/2026-11-19-gh45-records-text-2.md` (0 HIGH, 0 MEDIUM, 1 LOW accepted without action). Merged into the integration branch. **Every task merged.** Final gates on the integration head follow, then the drafts are updated with the final head and the verdict rows, then `/verify-claims` on each. |
