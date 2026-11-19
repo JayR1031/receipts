@@ -55,10 +55,12 @@ or a live run. `rules.py`'s module docstring lists the same limits.
   number can fall outside it, and the note usually says `page has no number there` although the
   page has it just past the window. Rates: 195 of 5,998 true quotes (`fuzz_place_all.py`) and
   35 of 2,931 on pages dense with prices (`fuzz_dense.py`). A different cause rejects 2 of 6,941
-  true quotes that add a word (`fuzz_add.py`). PR #35 tried two wider windows: they rejected
-  fewer true quotes that leave text out (5 and 10 of 5,998) but more that add a word (450 and
-  333 of 6,941), and let more wrong prices verify. Wrong prices that verify, shipped rules, then
-  window A, then window B: `fuzz_place2` 22, 2, 2 of 160,000; `fuzz_skip` 22, 107, 22 of 7,439;
+  true quotes that add a word (`fuzz_add.py`). PR #35 tried two wider windows, A (a quarter of the
+  quote on each side) and B (the quote's unmatched characters plus the window's shortfall): they
+  rejected fewer true quotes that leave text out (5 and 10 of 5,998) but more that add a word (450
+  and 333 of 6,941), and let more wrong prices verify in total, though fewer on `fuzz_place2`.
+  Wrong prices that verify, shipped rules, then window A, then window B: `fuzz_place2` 22, 2, 2 of
+  160,000 generated (109,249 of them holding a wrong price); `fuzz_skip` 22, 107, 22 of 7,439;
   `fuzz_spread` 0, 67, 1 of 6,000; `fuzz_add` 2, 173, 85 of 3,678. Summed over the four shapes,
   which have different denominators, that is 46, 349 and 110 (issue #45, comment of 2026-11-15
   07:55 UTC).
