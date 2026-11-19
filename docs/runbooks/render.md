@@ -13,7 +13,10 @@ manual deploy; a merge to `main` is the deploy.
 
 Sign-in (issue #41, ADR-0008) needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and
 `SESSION_SECRET`, plus `DATABASE_URL`. Two more are optional, with defaults that need no entry:
-`RUNS_PER_USER_PER_DAY` (5) and `SIGNED_OUT_RUNS_PER_DAY` (20). The issue #41 brief records that
+`RUNS_PER_USER_PER_DAY` (5) and `SIGNED_OUT_RUNS_PER_DAY` (20). The deployed service sets
+`SIGNED_OUT_RUNS_PER_DAY=5`: the main session set it through Render's API at the owner's request on
+2026-11-18 at 05:53 UTC, read it back as 5, and redeployed (`dep-dbujqss9v7es738psfqg`, live at
+05:55 UTC), because settings are read once per process. The issue #41 brief records that
 the main session set the first three through Render's API on 2026-11-15; this runbook has not
 re-checked them, so check their names (never their values) in the Render dashboard before relying
 on sign-in. With any of the four missing, `/auth/login` answers 503 naming it and the UI shows no
