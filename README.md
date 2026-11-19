@@ -255,16 +255,21 @@ lower-cased, whitespace collapsed.
 | Quote | Quote is an exact substring of the page | `quote_exact` | none |
 | Quote | Exact substring, but an edge of the match cuts a page number (`$19` inside `$199`) | falls through to the fuzzy check | |
 | Quote | Fuzzy match: `rapidfuzz` `partial_ratio` at least 90, the match covers the whole quote, and each number in the quote is the page's number at the same place in the match | `quote_fuzzy` | `fuzzy match: partial_ratio=… >= 90` |
-| Quote | The quote is on the page, but a value in the claim (a price written with a currency sign, a `%`, a decimal or a thousands number) is not in the quote | not verified | `claim numbers not in quote: …` |
+| Quote | The quote is on the page, but a value in the claim (a price with a currency sign or written out as `25 dollars` or `$ 25`, a `%`, a decimal, a thousands number, or a count such as `500 credits`) is not in the quote | not verified | `claim numbers not in quote: …` |
 | Quote | Anything else | not verified | `quote not found on page: …` with the reason |
 | Search | Same query, rank and URL as a row logged this run | `search_log` | none |
 | Search | Query was never searched this run | not verified (dropped) | `dropped: search query not logged this run` |
 | Search | Query logged, but no row with that rank and URL | not verified | `no logged row for query at rank N with that url` |
 
 The number rules in plain words, the known limits and seven worked examples with the verifier's
-real output are in **[docs/verifier.md](docs/verifier.md)**. Two of the limits: plan labels next to
-a price are not checked, and `$20k` in a claim is read as `$20`. Issue #45 tracks all the limits
-but one, which is by design.
+real output are in **[docs/verifier.md](docs/verifier.md)**. Two of the limits, both accepted by
+the repository owner on 2026-11-18: plan labels next to a price are not checked (in PR #35's
+random tests, 22 of 160,000 generated quotes on two- to four-price pages verified with a price
+that is not their plan's), and a true quote whose page text runs past the fuzzy score's window
+can be rejected (195 of 5,998 true quotes in the same tests). Prices with a suffix, such as
+`$20k`, are now read as one number, `$20,000`, in the claim and in the quote (issue #45). One edge
+of that is also a known limit: a quote cut mid-word at `$5m` from a page's `$5mo` reads five
+million, so a true `$5` claim is rejected and a wrong `$5,000,000` one verifies.
 
 ## Add a specialist in one YAML file
 
@@ -425,6 +430,8 @@ bin/jig               # format check, lint, types, unit tests; stops at the firs
 bin/jig --scope all   # adds integration tests (need keys and a database)
 ```
 
+`uv run python scripts/verify_fuzz/run_baseline.py` runs the verifier's random tests (about 11 s, no network or keys; no CI workflow runs it): exit 1 means a count of wrong quotes or claims verified, or of true ones rejected, rose above (or is missing from) `scripts/verify_fuzz/expected.txt`, or the tests themselves changed: a pinned script, a seed or sample size, or a denominator no rule can move ([docs/verifier.md](docs/verifier.md#the-measurement)).
+
 `main` requires five checks (ruleset "main — required checks"):
 
 | Check | Workflow | What it proves |
@@ -459,8 +466,8 @@ The demo compares **Mel** (the agentic terminal this hackathon promotes, per the
 
 **Reading the numbers.**
 - **Why claims failed:** the table's runs did not record their failure reasons. In a separate repairs-off run, `run-3cc9b768f440` (15 of 20 verified), all 5 failures were a claim price not in its quote (`claim numbers not in quote`), for example "Warp Build is $18/month…".
-- **What "repaired" means:** the verifier accepted the rewrite. Rewrites can carry plan names their quotes do not show, a known limit tracked in issue #45. In `run-a7be7a53cba9`, a separate repairs-on run not in the table (20 of 20), at least 6 of the 8 verified pricing claims did.
-- **Duplicates:** verified/total can count a repaired claim that duplicates another claim's receipt (issue #45). These runs did not measure that.
+- **What "repaired" means:** the verifier accepted the rewrite. Rewrites can carry plan names their quotes do not show, because the verifier does not check plan labels: a known limit the repository owner accepted on 2026-11-18 ([docs/verifier.md](docs/verifier.md), limit (h)). In `run-a7be7a53cba9`, a separate repairs-on run not in the table (20 of 20), at least 6 of the 8 verified pricing claims did.
+- **Duplicates:** a repair that copies the receipt of another claim from the same specialist is refused, and the original claim goes to the verifier unchanged (issue #45, ADR-0007). A copy across specialists is not caught, so verified/total can still count it: a known limit. These runs, made before that change, did not measure duplicates.
 - **Sample:** two pairs of one subject and rival. The model is not deterministic.
 - **Re-running them:** the runner scripts are in `scripts/mellea/` (`live_pairs.py 2` for the table,
   `live_reasons.py 1` and `live_repaired.py 1` for the two separate runs). They need `ANTHROPIC_API_KEY`

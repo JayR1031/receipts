@@ -1,0 +1,48 @@
+# Expected counts for run_baseline.py. Quote lines: measured on origin/main 949741f (claims: below).
+# One line per count: group | name | direction | at most | denominator | set the count is taken over
+# direction: open = misquotes or wrong prices verified (fail-open); closed = true quotes
+# rejected for their numbers (fail-closed). A count above "at most" fails run_baseline.py.
+# The denominator is the size of the set; a change of a FIXED one fails run_baseline.py.
+# FIXED (listed in run_baseline.py) means no rule can move it; any other change is only noted.
+# The set column starts with the command that produces the count, then a colon; run_baseline.py
+# fails when the command it runs (script, seed, n, extra arguments) differs from that one.
+quote | place_all.open | open | 0 | 5998 | fuzz_place_all.py 2 6000: misquotes verified, of misquotes tried
+quote | place_all.closed | closed | 195 | 5998 | fuzz_place_all.py 2 6000: true quotes rejected for numbers, of legit quotes tried
+quote | dense.closed | closed | 35 | 2931 | fuzz_dense.py 9 8000: true quotes rejected for numbers, of true quotes tried
+quote | add.s51.open | open | 1 | 1091 | fuzz_add.py 51 6000: add-a-word misquotes verified, of those scoring at least 90
+quote | add.s52.open | open | 1 | 1048 | fuzz_add.py 52 6000: add-a-word misquotes verified, of those scoring at least 90
+quote | add.s53.open | open | 0 | 1539 | fuzz_add.py 53 6000 all 1: add-a-word misquotes verified, of those scoring at least 90
+quote | add.open.total | open | 2 | 3678 | fuzz_add.py seeds 51, 52, 53: add-a-word misquotes verified, of those scoring at least 90 (10,994 generated)
+quote | add.s51.closed | closed | 0 | 2331 | fuzz_add.py 51 6000: true quotes rejected for numbers, of true quotes tried
+quote | add.s52.closed | closed | 1 | 2264 | fuzz_add.py 52 6000: true quotes rejected for numbers, of true quotes tried
+quote | add.s53.closed | closed | 1 | 2346 | fuzz_add.py 53 6000 all 1: true quotes rejected for numbers, of true quotes tried
+quote | add.closed.total | closed | 2 | 6941 | fuzz_add.py seeds 51, 52, 53: true quotes rejected for numbers, of true quotes tried
+quote | place2.s7 | open | 1 | 40000 | fuzz_place2.py 7 40000: quotes verified with a wrong slot, of quotes generated
+quote | place2.s11 | open | 9 | 40000 | fuzz_place2.py 11 40000: quotes verified with a wrong slot, of quotes generated
+quote | place2.s12 | open | 5 | 40000 | fuzz_place2.py 12 40000: quotes verified with a wrong slot, of quotes generated
+quote | place2.s13 | open | 7 | 40000 | fuzz_place2.py 13 40000: quotes verified with a wrong slot, of quotes generated
+quote | place2.total | open | 22 | 160000 | fuzz_place2.py seeds 7, 11, 12, 13: quotes verified with a wrong slot, of quotes generated
+quote | skip.s5 | open | 7 | 3767 | fuzz_skip.py 5 6000: next-plan-price misquotes verified, of misquotes tried
+quote | skip.s6 | open | 15 | 3672 | fuzz_skip.py 6 6000: next-plan-price misquotes verified, of misquotes tried
+quote | skip.total | open | 22 | 7439 | fuzz_skip.py seeds 5, 6: next-plan-price misquotes verified, of misquotes tried
+quote | spread.open | open | 0 | 6000 | fuzz_spread.py 1 6000: spread misquotes verified, of misquotes tried
+
+# Claim shapes: fuzz_claim_values.py, seed 45, 300 cases per kind, each case one WRONG and one TRUE
+# claim citing a quote that is quote_exact on its page. open = WRONG claims (a different value)
+# verified; closed = TRUE claims (the quote's value in an equivalent spelling) rejected. These are
+# the targets once rules (a) to (d) land, not 949741f's counts: on 949741f every kind but control
+# rises above them (the measurement's red-first run). Every claim-shape denominator is FIXED.
+count | claims.count.open | open | 0 | 300 | fuzz_claim_values.py 45 300 count: WRONG claims verified (a bare count with a unit the quote lacks, 500 credits against 18,000 credits), of WRONG claims tried
+count | claims.count.closed | closed | 0 | 300 | fuzz_claim_values.py 45 300 count: TRUE claims rejected (the quote's count with or without its separator, 18000 credits for 18,000 credits), of TRUE claims tried
+unsigned | claims.unsigned.open | open | 0 | 300 | fuzz_claim_values.py 45 300 unsigned: WRONG claims verified (another price unsigned, 25 dollars, USD 25, $ 25 or 25 $ against $20 or 20 dollars), of WRONG claims tried
+unsigned | claims.unsigned.closed | closed | 0 | 300 | fuzz_claim_values.py 45 300 unsigned: TRUE claims rejected (the quote's price signed or unsigned, $25 for 25 dollars and back), of TRUE claims tried
+suffix | claims.suffix.open | open | 0 | 300 | fuzz_claim_values.py 45 300 suffix: WRONG claims verified ($20k against $20, $20 or $20m against $20k, $20000k against $20,000), of WRONG claims tried
+suffix | claims.suffix.closed | closed | 0 | 300 | fuzz_claim_values.py 45 300 suffix: TRUE claims rejected ($20k for $20,000 and back, $20K for $20k, $20 for $20), of TRUE claims tried
+trailing | claims.trailing.open | open | 0 | 300 | fuzz_claim_values.py 45 300 trailing: WRONG claims verified (30$ against $25 or 25$), of WRONG claims tried
+trailing | claims.trailing.closed | closed | 0 | 300 | fuzz_claim_values.py 45 300 trailing: TRUE claims rejected (25$ for $25, $25 or 25$ for 25$), of TRUE claims tried
+leading_decimal | claims.leading_decimal.open | open | 0 | 300 | fuzz_claim_values.py 45 300 leading_decimal: WRONG claims verified ($.49 against $0.99 or $.99, $.99 against $99), of WRONG claims tried
+leading_decimal | claims.leading_decimal.closed | closed | 0 | 300 | fuzz_claim_values.py 45 300 leading_decimal: TRUE claims rejected ($.99 for $0.99 and back, $99 for $99), of TRUE claims tried
+free | claims.free.open | open | 0 | 300 | fuzz_claim_values.py 45 300 free: WRONG claims verified ($0 against a negated or trial free; a non-zero price against an unnegated free), of WRONG claims tried
+free | claims.free.closed | closed | 0 | 300 | fuzz_claim_values.py 45 300 free: TRUE claims rejected ($0 against an unnegated free; the real price beside a negated or trial free), of TRUE claims tried
+control | claims.control.open | open | 300 | 300 | fuzz_claim_values.py 45 300 control: WRONG claims verified (a changed year, plan number, model number or 24/7), of WRONG claims tried; all 300 by design, bare non-count integers stay unchecked
+control | claims.control.closed | closed | 0 | 300 | fuzz_claim_values.py 45 300 control: TRUE claims rejected (the quote restated plus a year or 24/7 the quote lacks), of TRUE claims tried

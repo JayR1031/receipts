@@ -19,6 +19,11 @@ What Mellea cannot do:
   the runner clears the verify fields of whatever a repairer returns, and the Verifier then
   judges the repaired claim like any other;
 - change whom the claim is about: `about` is always the original's;
+- copy another claim's receipt. The runner does not accept a repair whose receipt is identical
+  to another of the specialist's claims' receipts (`_accepted_repairs` in `specialist.py`,
+  GitHub issue #45); the original then goes to the Verifier unchanged. A repair that keeps its
+  own claim's receipt is accepted, even if another claim the agent wrote cites the same one,
+  because claims the agent wrote on one receipt all count;
 - keep a claim from the Verifier. A claim not repaired within the budget, within the pack's
   time budget, or because the backend raised, goes to the Verifier unchanged and is dropped or
   unverified there, exactly as without Mellea.
