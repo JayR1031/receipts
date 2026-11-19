@@ -205,7 +205,20 @@ deps = ["counts-free-repair", "dedupe-docstrings"]
 parallel_safe = false
 model = "opus"
 exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && uv run pytest -q tests/test_verify_claim_numbers.py && uv run pytest -q tests/test_verify.py && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY uv run pytest -q tests/test_harness_repair.py && uv run python scripts/verify_fuzz/run_baseline.py && ! git diff origin/main...HEAD -- src tests scripts | grep -nE '^\\+.*(noqa|type: ignore|pytest\\.mark\\.(skip|xfail)|pyright: (basic|ignore)|per-file-ignores)'"
-state = "judging"
+state = "merged"
+
+[[task]]
+id = "records-text"
+title = "records follow-up (whole-PR judge LOW 1 and 2, verdicts/2026-11-19-gh45-records-whole-pr.md): docs/verifier.md:60-61 gives each of the four shapes' 349/110/46 figures with its own denominator (or drops the totals); the README and docs/verifier.md claim-value table rows are made identical; prose only"
+scope = [
+  "README.md",
+  "docs/verifier.md",
+]
+deps = ["records"]
+parallel_safe = false
+model = "sonnet"
+exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && git diff --exit-code c1201d7 -- src tests scripts"
+state = "running"
 ```
 
 ## Per-task dispatch notes and judge gates
@@ -279,3 +292,5 @@ Then `records` runs as planned: `origin/main` (`3b2673c`) merged first; the whol
 | 2026-11-19 18:20 | Coordinator update recorded in the `records` note: the `$20k` flag to "main" is no longer needed (the post now reads "(the README lists the known gaps)", claims-checked); the judge gate for `records` gains "the merged README names known limits and links `docs/verifier.md`". |
 | 2026-11-19 18:50 | `records` first pass: head `604e54f` (4 files, 259 insertions, 58 deletions). Orchestrator re-run: `bin/jig` exit 0; full `run_baseline.py` 34 of 34 `ok`; marker grep over `src tests scripts` 0 hits; `rules.py` change is docstring-only (implementer AST: 0 of 70 top-level nodes differ, 457 code lines byte-identical); none of the seven `<details>` outputs changed. Drafts written to the scratch directory. The implementer flagged four stale sentences outside its instructions: `README.md:258` (the table row defines a claim value without counts or unsigned prices), `tests/test_verify.py:703` ("tracked in GitHub issue #45"), `tests/test_verify_claim_numbers.py:3-4` ("bare integers are not checked"), `docs/adr/0007-mellea.md:28` (value token in PR #35's terms). Brief Verification 7 requires the record to describe the same rules everywhere, so **`records`' scope is widened to `tests/test_verify.py` and `docs/adr/0007-mellea.md` (both in the brief's Allowed list), prose and comments only**, and a second pass fixes the four lines before the judge. This widening is to complete the record, not to pass a failing gate; the task has not been judged. |
 | 2026-11-19 19:20 | `records` → `judging`: head `923c5af` (second pass `923c5af` fixed the four stale lines, 4 files, 10 insertions, 8 deletions, prose and comments only; repo grep for "tracked in issue #45", "Issue #45 tracks", "bare integers are not checked" now 0 hits outside `docs/superpowers/`). Orchestrator re-run on `923c5af`: `bin/jig` exit 0; full `run_baseline.py` 34 of 34 `ok`; marker grep 0; `pytest -m "not integration" -rs` 820 passed, 14 deselected, 0 skipped. Whole-PR diff `origin/main...923c5af`: 30 files (corrected from 31 on the whole-PR verdict's LOW 3), all in the brief's Allowed list. Whole-PR judge dispatched with the brief's Verification 1 to 7. |
+| 2026-11-19 20:10 | `records` → `merged`: whole-PR judge PASS, `docs/superpowers/plans/verdicts/2026-11-19-gh45-records-whole-pr.md` (0 HIGH, 0 MEDIUM, 4 LOW). Verification 1 to 7 all met on `923c5af`: 30 files all in scope; jig exit 0; 820 passed, 14 deselected, 0 skipped; 34 of 34 baseline lines `ok`; 12 of 12 durable-vs-committed diffs empty; baseline table reproduced at `949741f`; red-first 96 of 96 failures by assertion (8 + 85 + 3) and the 10 `ROSE` lines; six probes as the brief states on both revisions; ten sabotage rows each red then green; the record consistent across `rules.py`, `docs/verifier.md`, README and ADR-0007; the README names known limits and links `docs/verifier.md`. Merged as `c1201d7`. LOW 1, 2 → `records-text`; LOW 3 → corrected in this log; LOW 4 → record only. |
+| 2026-11-19 20:11 | `records-text` → `running`: worktree `.worktrees/gh45-records-text`, branch `jay/gh-45-records-text` from the integration head after this commit, implementer on `sonnet`. |
