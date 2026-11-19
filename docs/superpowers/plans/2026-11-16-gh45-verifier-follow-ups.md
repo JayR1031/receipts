@@ -194,8 +194,10 @@ title = "rules.py module docstring and the README's 'The verifier' section (numb
 scope = [
   "src/receipts/verify/rules.py",
   "tests/test_verify_claim_numbers.py",
+  "tests/test_verify.py",
   "README.md",
   "docs/verifier.md",
+  "docs/adr/0007-mellea.md",
   "docs/superpowers/plans/**",
   "docs/superpowers/briefs/2026-11-16-gh45-verifier-follow-ups.md",
 ]
@@ -275,3 +277,4 @@ Then `records` runs as planned: `origin/main` (`3b2673c`) merged first; the whol
 | 2026-11-19 18:05 | Owner answers recorded (above). `origin/main` re-read: still `3b2673c`. Merged `origin/main` into the integration branch as `e16065f` (plain merge, clean); on it `bin/jig` exit 0 and full `run_baseline.py` exit 0, 34 of 34 `ok`. On `e16065f` the text to rewrite sits at `README.md:264-267` (the `$20k` sentence), `README.md:462-463` (the Demo bullets) and `docs/verifier.md:27` onward (the limits list and `<details>` examples). |
 | 2026-11-19 18:06 | `records` → `running`: worktree `.worktrees/gh45-records`, branch `jay/gh-45-records` from the integration head after this commit, implementer on `opus`. Drafts go to the orchestrator's scratch directory, not the repo. |
 | 2026-11-19 18:20 | Coordinator update recorded in the `records` note: the `$20k` flag to "main" is no longer needed (the post now reads "(the README lists the known gaps)", claims-checked); the judge gate for `records` gains "the merged README names known limits and links `docs/verifier.md`". |
+| 2026-11-19 18:50 | `records` first pass: head `604e54f` (4 files, 259 insertions, 58 deletions). Orchestrator re-run: `bin/jig` exit 0; full `run_baseline.py` 34 of 34 `ok`; marker grep over `src tests scripts` 0 hits; `rules.py` change is docstring-only (implementer AST: 0 of 70 top-level nodes differ, 457 code lines byte-identical); none of the seven `<details>` outputs changed. Drafts written to the scratch directory. The implementer flagged four stale sentences outside its instructions: `README.md:258` (the table row defines a claim value without counts or unsigned prices), `tests/test_verify.py:703` ("tracked in GitHub issue #45"), `tests/test_verify_claim_numbers.py:3-4` ("bare integers are not checked"), `docs/adr/0007-mellea.md:28` (value token in PR #35's terms). Brief Verification 7 requires the record to describe the same rules everywhere, so **`records`' scope is widened to `tests/test_verify.py` and `docs/adr/0007-mellea.md` (both in the brief's Allowed list), prose and comments only**, and a second pass fixes the four lines before the judge. This widening is to complete the record, not to pass a failing gate; the task has not been judged. |
