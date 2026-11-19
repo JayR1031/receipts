@@ -203,7 +203,7 @@ deps = ["counts-free-repair", "dedupe-docstrings"]
 parallel_safe = false
 model = "opus"
 exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && uv run pytest -q tests/test_verify_claim_numbers.py && uv run pytest -q tests/test_verify.py && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY uv run pytest -q tests/test_harness_repair.py && uv run python scripts/verify_fuzz/run_baseline.py && ! git diff origin/main...HEAD -- src tests scripts | grep -nE '^\\+.*(noqa|type: ignore|pytest\\.mark\\.(skip|xfail)|pyright: (basic|ignore)|per-file-ignores)'"
-state = "planned"
+state = "running"
 ```
 
 ## Per-task dispatch notes and judge gates
@@ -225,6 +225,14 @@ Every dispatch carries: the brief, the task's block above, the limits paragraph,
 3. **Delegated, as for #41:** on each task's judge PASS the orchestrator merges the task branch into `jay/gh-45-verifier-follow-ups`. Never into `main`, never a rebase or force-push. The PR to `main` needs the whole-PR judge PASS and green CI; the main session merges it.
 
 The brief was amended the same minute to match (its "File scope", "Amended 2026-11-18 06:16 UTC" note), which also lists the brief's own path, so the scope note on that path above is resolved. Reports go to "main" at the end of each wave and on any escalation.
+
+## Owner answers before `records` (2026-11-19 17:55:47 UTC, Claude Code session `477932e0`, relayed by the coordinating session)
+
+1. **README wording: "Yes, as planned".** The README keeps naming its known limits; a still-true example with its PR #35 rate and denominator (plan labels, for instance) replaces `$20k`; the same place says `$20k`-style prices are now read as one number; "Issue #45 tracks" is dropped. The LinkedIn post was changed at 17:19:12 UTC to "(the README lists the known gaps)", so the only constraint left is that the README still lists known gaps. The old and new sentences need not be sent first.
+2. **The `$5m`/`$5mo` cut-mid-word edge: "Document it as a limit"**, both directions, with an example, in `rules.py`'s docstring, `docs/verifier.md` and the README's limits mention as fits.
+3. **"Free 14-day trial": "Document it as a limit".** Assumption 8's rule stays.
+
+Then `records` runs as planned: `origin/main` (`3b2673c`) merged first; the whole-PR judge; `/verify-claims` on the PR body and the #45 comment, which goes to "main" for posting. The PR is not opened and nothing is pushed to `main` by the orchestrator; the report to "main" names the integration head, the PR body draft path and the comment draft path.
 
 ## Questions for the owner (answered above; kept for the record)
 
@@ -264,3 +272,5 @@ The brief was amended the same minute to match (its "File scope", "Amended 2026-
 | 2026-11-18 12:50 | `counts-free-repair` → `judging`: head `021131e` (commits `3b60b79` fix, `021131e` comment; one logic line changed: `_TRIAL` `trial\b` → `trials?\b`; two red-first "free trials" cases). Orchestrator re-run: `bin/jig` exit 0; `test_verify_claim_numbers.py` 160 passed; `test_verify.py` 117 passed; full `run_baseline.py` exit 0, 34 of 34 `ok`. Judged on the whole branch `b7d70f0...021131e`. |
 | 2026-11-18 13:20 | `counts-free-repair` → `merged`: judge PASS, `docs/superpowers/plans/verdicts/2026-11-18-gh45-counts-free-repair.md` (0 HIGH, 0 MEDIUM, 2 LOW → `records`; its scope gains `tests/test_verify_claim_numbers.py` for one comment line). Merged as `f6229ab`. **On `f6229ab`: `bin/jig` exit 0; full `run_baseline.py` exit 0, 34 of 34 `ok` (the eleven PR #35 quote counts unchanged from `949741f`; all six claim-shape gaps at 0 of 300 WRONG verified and 0 of 300 TRUE rejected; control 300 of 300 by design); `pytest -q -m "not integration" -rs` with the seven variables unset: 820 passed, 14 deselected (marker `integration`), 0 skipped.** |
 | 2026-11-18 13:21 | **Waves C, D, E complete.** All rules (a) to (d) and (i) merged. `records` is the only task left and stays `planned` until "main" confirms the README wording for the LinkedIn sentence (coordinating session, 2026-11-18 ~07:45). `bin/plan-check --ready` lists `records`. Orchestrator reports to "main". |
+| 2026-11-19 18:05 | Owner answers recorded (above). `origin/main` re-read: still `3b2673c`. Merged `origin/main` into the integration branch as `e16065f` (plain merge, clean); on it `bin/jig` exit 0 and full `run_baseline.py` exit 0, 34 of 34 `ok`. On `e16065f` the text to rewrite sits at `README.md:264-267` (the `$20k` sentence), `README.md:462-463` (the Demo bullets) and `docs/verifier.md:27` onward (the limits list and `<details>` examples). |
+| 2026-11-19 18:06 | `records` → `running`: worktree `.worktrees/gh45-records`, branch `jay/gh-45-records` from the integration head after this commit, implementer on `opus`. Drafts go to the orchestrator's scratch directory, not the repo. |
