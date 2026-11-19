@@ -1,7 +1,9 @@
 """Lane L2, GitHub issue #33: every value token in a quote-receipt claim must be in its quote.
 
 A value token is a number with a currency sign, a `%`, a decimal part or a thousands separator
-(`$20`, `20%`, `19.5`, `2,500`); bare integers are not checked (`rules.py` module docstring).
+(`$20`, `20%`, `19.5`, `2,500`), an unsigned price (`25 dollars`, `$ 25`) or a count with a unit
+(`500 credits`). Other bare integers (years, plan and model names, `24/7`) are not checked
+(`rules.py` module docstring).
 
 The two regression cases use the claim and quote text as reported for the first live run
 (run-0e7ff2b1bb05) in GitHub issue #33 and its task brief; the run's own record is not in this
@@ -766,7 +768,7 @@ def test_a_number_read_as_a_signed_price_is_not_also_a_count(
 
 # --- a negated or trial "free" (GitHub issue #45, rule (b)) --------------------------------
 # A `free` with `not`, `no`, `never`, `isn't`, `isnt`, `aren't`, `arent`, `without` or `non` in
-# the two words before it, or `trial` right after it, adds no zero price (brief assumption 8).
+# the two words before it, or `trial` or `trials` right after it, adds no zero price (assumption 8).
 
 
 @pytest.mark.parametrize(

@@ -25,7 +25,8 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   let wrong prices verify in other quote shapes. A number
   token is `_NUMBER_TOKEN` on the normalized text: digits with `.` or `,` groups (`19.99` is one
   token, never split), with a currency sign or `%` as part of it. The sign leads (`$20`), leads
-  a decimal point (`$.99`), or directly follows the digits (`25$`); after a leading sign, a `k`,
+  a decimal point (`$.99`), or directly follows the digits (`25$`), unless a number follows the
+  sign, which then leads that number (`5$20` is `5` and `$20`); after a leading sign, a `k`,
   `m` or `b` that no letter or digit follows is part of the token (`$20k`, `$1.2m`; GitHub
   issue #45, rule (d)), so `$5 max` and `$5/mo` stay `$5`. Tokens compare after
   `_canonical_number`: a trailing sign moved to the front (`25$ == $25`), a leading point given
@@ -33,10 +34,11 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   three digits, so `1,000 == 1000` while the decimal comma in `19,99` stays), a suffix written
   out (`$20k == $20,000`, `$1.2m == $1,200,000`) and a zero decimal part removed
   (`$20.00 == $20.0 == $20`; `$20.05` and `$20.50` stay). `normalize` writes `20 %` and
-  `20 percent` as `20%`. Out of scope: number words (`three` is not `3`); `bn`, `mm`, `million`
-  and `thousand`, a space before a suffix, a suffix on an unsigned number (`1.5k` is not
-  `1,500`; `$1.5k` is) and a decimal comma before a suffix; and, in the quote-to-page match,
-  `20 dollars`, `20 USD` and `$ 20` are not `$20` (the claim rule reads them as `$20`; below).
+  `20 percent` as `20%`. Out of scope (known limits, below): number words (`three` is not `3`);
+  `bn`, `mm`, `million` and `thousand`, a space before a suffix, a suffix on an unsigned number
+  (`1.5k` is not `1,500`; `$1.5k` is) and a decimal comma before a suffix; and, in the
+  quote-to-page match, `20 dollars`, `20 USD` and `$ 20` are not `$20` (the claim rule reads
+  them as `$20`; below).
   - **Exact path**: an occurrence of the quote counts only if neither of its edges falls inside
     a page number token. `basic is $19` inside `basic is $199`, `basic is $19.` inside
     `$19.99`, `99 per seat` inside `$19.99 per seat`, `save 20` inside `save 20%` and
@@ -51,30 +53,9 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
     so are quotes that swap the page's prices (`pro yearly: $19. pro monthly: $199.`) or repeat
     one. The note pairs each differing quote number with what the page has there, in quote
     order: `numbers differ (quote has $19, $199; page has $199, $19 there; ...)`.
-  - **Known limit, labels are not checked (fail-open; also on `main`):** only numbers are
-    compared, so a changed or dropped plan name next to a price can attach another plan's real
-    price. `tier b: $29` verifies on `tier a: $29 ... tier b: $19`, and `basic $200 pro max $15`
-    verifies on `basic $200 pro $15 max $12` (the alignment drops `max`; a test pins it).
-    Rates in PR #35's random tests (scripts in the review records, not in the repository):
-    - 22 of the 109,249 wrong-price quotes among 160,000 generated on two- to four-price pages;
-    - 22 of 7,439 misquotes on pages whose own price at the quote's place is a word or a
-      different price;
-    - 2 of 3,678 wrong prices in quotes that add a word.
-
-    Tracked in GitHub issue #45.
-  - **Known limit, some true quotes fail closed (accepted by the owner):** `partial_ratio`'s
-    window is at most `len(quote)` long. When the page text a quote matches is longer, the
-    quote's first or last number can fall outside the window and be aligned with no page
-    number. It is then a miss, and the note usually says `page has no number there` (227 of
-    the 230 random-test rejections counted next), although the page has the number just past
-    the window (`...; business $10` on `... · business $10.`; tests pin five cases). Rates:
-    195 of 5,998 true quotes, and 35 of 2,931 on pages dense with prices. A different cause
-    rejects 2 of 6,941 true quotes that add a word: the price is inside the window, but the
-    alignment ties the added word's letters to text past the price. A true claim then shows as
-    unverified, never the reverse. Tracked in #45.
 
   A one-digit price change scores ~97. The aim is that a battlecard never shows a wrong number
-  as verified; the known limits in this docstring are the exceptions. `normalize` keeps
+  as verified; the known limits below are the exceptions. `normalize` keeps
   `$ € £ % . ,` next to digits, so the token regex runs on the normalized strings.
 * **Claim numbers must be in the quote** (GitHub issue #33): once the quote is on the page
   (`quote_exact` or `quote_fuzzy`), every **value token** of the normalized `claim.text`, its
@@ -90,8 +71,8 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   credits`, `50-seat`) or one other word between (`5 active users`, `1500 hosted-ai credits`),
   is a count. So `500 credits` in the claim misses a quote with `18,000 credits`, which backs
   `18000 credits`. It is read after the unsigned prices (below), so `$ 25 per seat` is the
-  price `$25` and not also 25 seats. Known limit: a count compares its value, not its unit, so
-  `500 seats` in the quote backs `500 credits` in the claim.
+  price `$25` and not also 25 seats. A count compares its value, not its unit (known limits,
+  below).
   **Unsigned prices** (GitHub issue #45, rule (c); the claim rule only): a number followed by
   one space and `dollar`, `dollars`, `usd`, `euro`, `euros`, `eur`, `gbp`, `jpy` or `yen`;
   `usd`, `eur`, `gbp` or `jpy` followed by one space and a number; a sign followed by one space
@@ -108,8 +89,8 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   `freedom`. A negated or trial `free` does not count (GitHub issue #45, rule (b)): one with
   `not`, `no`, `never`, `isn't`, `isnt`, `aren't`, `arent`, `without` or `non` among the two
   words before it (`not free`, `no free plan`, `non-free`), or with `trial` or `trials` directly
-  after it (`free trial`, `free trials`). Known limit: any other standalone `free` anywhere in
-  the quote counts, including another plan's free tier.
+  after it (`free trial`, `free trials`). Any other standalone `free` anywhere in the quote
+  counts, including another plan's free tier (known limit (e), below).
   A miss (not dropped) has the note `claim numbers not in quote: <values>`, sorted and
   deduplicated. Each value is named in its signed reading, the one spelling for rules (c) and
   (d): the sign in front and a leading point given its zero (`25 dollars`, `$ 25` and `25$` are
@@ -117,12 +98,93 @@ Rules (spec "Verifier rules", scope cut 2026-11-14 row 4: no LLM note):
   `$20.00`, `2,500`). The quote-to-page note names tokens as the quote and page write them.
   A quote on the page proves only what the quote says; a price the model added to
   the claim text is not covered by it. The quote may carry numbers the claim does not repeat.
-  Known limit: the rule checks that each value is in the quote, not which plan or billing term
-  it belongs to, so values swapped inside one quote still verify.
+  The rule checks that each value is in the quote, not which plan or billing term it belongs
+  to (known limit (g), below).
 * `SearchReceipt`: verified (`search_log`) iff a logged `SearchResult` has the same `query`,
   `url` and `rank`. A query that was never logged this run is **dropped**; a logged query whose
   rows do not contain that url/rank is a miss. The claim-number rule above is out of scope for
   search receipts (there is no quote to check the claim text against).
+
+Known limits. Fail-open: a wrong claim can show as verified. Fail-closed: a true claim can show
+as unverified. The repository owner accepted (e) to (h) on 2026-11-18 (GitHub issue #45). The
+others follow from how issue #45's rules (a) to (d) and (i) were drawn: the issue's brief
+(`docs/superpowers/briefs/2026-11-16-gh45-verifier-follow-ups.md`, its assumptions) and the
+owner's answers of 2026-11-19. Rates are counts from the random tests in `scripts/verify_fuzz/`
+(PR #35's six scripts and issue #45's claim shapes, run by `run_baseline.py`) or from a live
+run; a limit with no rate was not measured. (h) and the copied-receipt limit are in the harness
+(`receipts.harness`), not in this module; they are listed here with the rest.
+
+* **(e) Plan labels are not checked** (fail-open). Only numbers are compared, so a changed or
+  dropped plan name next to a price can attach another plan's real price. `tier b: $29`
+  verifies on `tier a: $29 ... tier b: $19`, and `basic $200 pro max $15` verifies on
+  `basic $200 pro $15 max $12` (the alignment drops `max`; a test pins it). In the claim rule
+  the same goes for `free`: one that is neither negated nor a trial counts wherever it is, so
+  the quote `starter is free, pro is $20` backs the claim `Pro is $0`. Rates, from PR #35's
+  random tests of the quote-to-page rule:
+  - 22 of 160,000 quotes generated on two- to four-price pages verified with a price that is
+    not its plan's (`fuzz_place2.py`, seeds 7, 11, 12 and 13); PR #35's `count_sets.py`, which
+    is not committed, put 109,249 of the 160,000 as holding a wrong price;
+  - 22 of 7,439 misquotes on pages whose own price at the quote's place is a word or a
+    different price (`fuzz_skip.py`, seeds 5 and 6);
+  - 2 of 3,678 add-a-word misquotes that score at least 90, of 10,994 generated (`fuzz_add.py`,
+    seeds 51, 52 and 53).
+* **(f) True quotes past the score window fail closed.** `partial_ratio`'s window is at most
+  `len(quote)` long. When the page text a quote matches is longer, the quote's first or last
+  number can fall outside the window and be aligned with no page number. It is then a miss,
+  and the note usually says `page has no number there` (227 of the 230 random-test rejections
+  counted next), although the page has the number just past the window (`...; business $10`
+  on `... · business $10.`; tests pin five cases). Rates: 195 of 5,998 true quotes
+  (`fuzz_place_all.py`), and 35 of 2,931 on pages dense with prices (`fuzz_dense.py`). A
+  different cause rejects 2 of 6,941 true quotes that add a word (`fuzz_add.py`): the price is
+  inside the window, but the alignment ties the added word's letters to text past the price.
+* **(g) Values swapped inside one quote still verify** (fail-open). The claim rule checks that
+  each value is in the quote, not which plan or billing term it belongs to: the claim `Pro is
+  $19 a year and $199 a month` verifies on the quote `pro yearly: $199. pro monthly: $19.`.
+* **(h) A repair can carry a plan name its quote lacks** (fail-open). Mellea rewrites a failing
+  claim, at most twice, aiming for one this module accepts, and (e) lets the rewrite name a plan
+  its quote does not. In the live run `run-a7be7a53cba9` (Mel vs Warp, repairs on, 2026-11-15),
+  at least 6 of the 8 verified pricing claims did, for example `Mel Max is 18,000 hosted-AI
+  credits a month.` on `Pro with the biggest bucket — 18,000 credits a month.`.
+* **A count compares its value, not its unit** (fail-open; brief assumption 2): `500 seats` in
+  the quote backs `500 credits` in the claim. Only the ten units count, after nothing, a space,
+  a hyphen or one other word, so `30 days` and `5 very active users` are not checked.
+* **A bare number before a unit is read as a count** (fail-closed; brief assumption 1, read
+  literally): `25 per seat` with no sign is 25 seats, so the claim `Pro costs 25 per seat`
+  misses the quote `pro costs $25 per seat` (note `25`); `In 2025 users` and `GPT-4 tokens`
+  make `2025` and `4` values the quote must carry.
+* **A bare integer with no unit is not checked** (fail-open, by design): a changed year, plan
+  number, model number or `24/7` verifies. 300 of 300 such wrong claims verify in the
+  `control` shape (`fuzz_claim_values.py 45 300 control`).
+* **Unsigned spellings outside rule (c)'s lists are not prices** (brief assumption 3): `pounds`
+  (often a weight), `bucks` and number words (`twenty-five dollars`). In the claim they are not
+  checked (fail-open: `Pro costs 25 pounds` verifies on the quote `pro costs £20`); in the quote
+  `25 pounds` does not back a claim's `£25` (fail-closed).
+* **The quote-to-page match reads no unsigned price** (fail-closed; the owner's choice of
+  2026-11-18, rule (c) in the claim rule only): the quote `pro costs 20 dollars` on the page
+  `pro costs $20.` is a miss, as before issue #45.
+* **Suffix forms out of scope** (brief assumption 6): `bn`, `mm`, `million` and `thousand`, a
+  space before the suffix, a suffix on an unsigned number and a decimal comma before a suffix.
+  `$20bn`, `$20mm`, `$20 million`, `$20 thousand` and `$20 k` read `$20`, and `1.5k` reads
+  `1.5`, so the claim `Enterprise is $20 million` verifies on the quote `enterprise $20 per
+  seat`, and the quote `enterprise $20` is `quote_exact` on the page `enterprise $20 million a
+  year.` (fail-open). `$1,5k` is compared as written and misses `$1,500` (fail-closed).
+* **A quote cut mid-word at a suffix letter** (both ways; the owner's decision of 2026-11-19,
+  "Document it as a limit"): the quote `pro costs $5m`, cut from the page `pro costs $5mo for
+  every seat.`, is `quote_exact`, and its `$5m` reads `$5,000,000` while the page's reads `$5`.
+  So the true claim `Pro costs $5.` is rejected (fail-closed) and the wrong claim `Pro costs
+  $5,000,000.` verifies (fail-open).
+* **A trial `free` not directly before `trial`, and a negation across punctuation** (rule (b),
+  brief assumption 8): `start your free 14-day trial` and `starter is free: trial included`
+  still add a zero price, so a wrong `$0` verifies (fail-open; the owner's decision of
+  2026-11-19, "Document it as a limit"). The two-word window runs across punctuation, so
+  `no ads, free forever` adds no zero price and a true `$0` is rejected (fail-closed).
+* **A copied receipt is caught only exactly, and only within one specialist** (rule (i), brief
+  assumptions 9 and 10; fail-open): receipts are compared as exact strings, so a repair whose
+  quote differs from another claim's only in case or spacing counts as a second claim on one
+  piece of evidence; and `SpecialistRunner` sees one domain's claims, so a copy across domains
+  is not caught (`Coordinator` cannot tell a repair from an original without a contract change).
+* **Search receipts skip the claim-number rule** (by design): there is no quote to check the
+  claim text against, so a price in the claim is not compared with the logged search result.
 
 Dropped-claim convention (L1 keys `DroppedEvent` off this; W2 relies on it too):
     verified=False, verify_method=None, verify_note=f"{DROPPED_PREFIX}<reason>"
