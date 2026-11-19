@@ -218,7 +218,19 @@ deps = ["records"]
 parallel_safe = false
 model = "sonnet"
 exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && git diff --exit-code c1201d7 -- src tests scripts"
-state = "judging"
+state = "merged"
+
+[[task]]
+id = "records-text-2"
+title = "records-text follow-up (judge LOW 1-3, verdicts/2026-11-19-gh45-records-text.md): in docs/verifier.md's (f) paragraph, qualify 'more wrong prices verify' as 'in total, though fewer on fuzz_place2'; give the fuzz_place2 row '160,000 generated (109,249 of them holding a wrong price)'; define windows A and B where they are first mentioned; prose only, the judge's wording"
+scope = [
+  "docs/verifier.md",
+]
+deps = ["records-text"]
+parallel_safe = false
+model = "sonnet"
+exit = "find . -name __pycache__ -prune -exec rm -rf {} + && env -u DATABASE_URL -u ANTHROPIC_API_KEY -u KEENABLE_API_KEY -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET -u SESSION_SECRET -u DEMO_PASSCODE bin/jig && git diff --exit-code c1201d7 -- src tests scripts README.md"
+state = "running"
 ```
 
 ## Per-task dispatch notes and judge gates
@@ -295,3 +307,5 @@ Then `records` runs as planned: `origin/main` (`3b2673c`) merged first; the whol
 | 2026-11-19 20:10 | `records` → `merged`: whole-PR judge PASS, `docs/superpowers/plans/verdicts/2026-11-19-gh45-records-whole-pr.md` (0 HIGH, 0 MEDIUM, 4 LOW). Verification 1 to 7 all met on `923c5af`: 30 files all in scope; jig exit 0; 820 passed, 14 deselected, 0 skipped; 34 of 34 baseline lines `ok`; 12 of 12 durable-vs-committed diffs empty; baseline table reproduced at `949741f`; red-first 96 of 96 failures by assertion (8 + 85 + 3) and the 10 `ROSE` lines; six probes as the brief states on both revisions; ten sabotage rows each red then green; the record consistent across `rules.py`, `docs/verifier.md`, README and ADR-0007; the README names known limits and links `docs/verifier.md`. Merged as `c1201d7`. LOW 1, 2 → `records-text`; LOW 3 → corrected in this log; LOW 4 → record only. |
 | 2026-11-19 20:11 | `records-text` → `running`: worktree `.worktrees/gh45-records-text`, branch `jay/gh-45-records-text` from the integration head after this commit, implementer on `sonnet`. |
 | 2026-11-19 20:35 | `records-text` → `judging`: head `dbe8fb9` (one file, `docs/verifier.md`, 6 insertions, 3 deletions; `README.md:258` already had the longer wording, so only `docs/verifier.md:18` changed for LOW 2). Orchestrator re-run: `bin/jig` exit 0; `git diff --exit-code c1201d7 -- src tests scripts` exit 0; the two table rows are byte-identical. |
+| 2026-11-19 21:00 | `records-text` → `merged`: judge PASS, `docs/superpowers/plans/verdicts/2026-11-19-gh45-records-text.md` (0 HIGH, 0 MEDIUM, 3 LOW, all wording in `docs/verifier.md:58-64`). Merged into the integration branch. LOW 1 ("more wrong prices verify" is false for `fuzz_place2`, 2 against 22) is a Rule Zero sentence, so the three LOWs go to `records-text-2` with the judge's exact wording rather than ship. |
+| 2026-11-19 21:01 | `records-text-2` → `running`: worktree `.worktrees/gh45-records-text-2`, branch `jay/gh-45-records-text-2` from the integration head after this commit, implementer on `sonnet`. |
