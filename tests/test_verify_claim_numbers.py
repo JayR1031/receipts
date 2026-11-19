@@ -766,7 +766,7 @@ def test_a_number_read_as_a_signed_price_is_not_also_a_count(
 
 # --- a negated or trial "free" (GitHub issue #45, rule (b)) --------------------------------
 # A `free` with `not`, `no`, `never`, `isn't`, `isnt`, `aren't`, `arent`, `without` or `non` in
-# the two words before it, or `trial` right after it, adds no zero price (brief assumption 8).
+# the two words before it, or `trial` or `trials` right after it, adds no zero price (assumption 8).
 
 
 @pytest.mark.parametrize(
