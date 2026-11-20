@@ -269,6 +269,9 @@ async def test_account_view_signed_in_shows_the_count_a_sign_out_form_and_hides_
     gate = FakeGate(fake_run_service, user=USER, status=SIGNED_IN)
     html, passcode = await ui_app.account_view(gate, _gr_request())
     assert f"{EMAIL} · 0 of 5 runs used today (UTC)" in html
+    assert 'class="receipts-account"' in html
+    assert 'class="receipts-account-text"' in html
+    assert "style=" not in html
     assert f'<form method="post" action="{ui_app.SIGN_OUT_PATH}">' in html
     assert ui_app.SIGN_OUT_PATH == "/auth/logout"
     assert "Sign out</button>" in html
@@ -426,16 +429,84 @@ def test_build_ui_with_a_gate_puts_the_account_line_right_after_the_header(
     assert htmls[0] is min(blocks.blocks.values(), key=lambda b: b._id)
 
 
+def _start_button(blocks: gr.Blocks) -> gr.Button:
+    return next(
+        b for b in blocks.blocks.values() if isinstance(b, gr.Button) and b.elem_id == "start"
+    )
+
+
+def test_run_form_copy_names_the_comparison_and_the_start_states() -> None:
+    assert ui_app.START_LABEL == "Start run"
+    assert ui_app.RUNNING_LABEL == "Running…"
+    assert ui_app.FORM_HEAD.startswith("New comparison")
+    assert "Who can back up their claims?" in ui_app.FORM_HEAD
+    assert ui_app.FORM_HINT == "A run takes about 2 minutes."
+
+
+def test_build_ui_lays_out_the_run_form_as_one_card(fake_run_service: FakeRunService) -> None:
+    blocks = build_ui(fake_run_service)
+    columns = [b for b in blocks.blocks.values() if isinstance(b, gr.Column)]
+    assert any("rf" in (c.elem_classes or []) for c in columns)
+    markdowns = [b.value for b in blocks.blocks.values() if isinstance(b, gr.Markdown)]
+    assert ui_app.FORM_HEAD in markdowns
+    assert "vs" in markdowns
+    assert ui_app.FORM_HINT in markdowns
+    start = _start_button(blocks)
+    assert start.value == ui_app.START_LABEL
+    assert start.elem_id == "start"
+
+
+def test_render_account_uses_theme_classes_not_inline_layout() -> None:
+    html = ui_app.render_account(SIGNED_OUT)
+    assert 'class="receipts-account"' in html
+    assert 'class="receipts-account-text"' in html
+    assert "style=" not in html
+    assert f'href="{ui_app.SIGN_IN_PATH}"' in html
+
+
 def test_build_ui_with_a_gate_recounts_the_account_line_after_each_run(
     fake_run_service: FakeRunService,
 ) -> None:
     """A run moves today's count, so the line is refreshed once the run's stream ends."""
     gate = FakeGate(fake_run_service, user=USER, status=SIGNED_IN)
     deps = build_ui(fake_run_service, gate=gate).get_config_file().get("dependencies", [])
-    by_name = {dep["api_name"]: dep for dep in deps}
+    by_name = {dep["api_name"]: dep for dep in deps if dep.get("api_name")}
     start, account = by_name["on_start"], by_name["account"]
     after_start = [dep for dep in deps if dep["trigger_after"] == start["id"]]
     assert [dep["outputs"] for dep in after_start] == [account["outputs"]]
+
+
+def test_build_ui_locks_the_start_button_for_the_run_and_unlocks_it_after(
+    fake_run_service: FakeRunService,
+) -> None:
+    """The Start control is the only one that may change while a run is in flight: it shows
+    Running and is not clickable, then returns to Start run whether the run finished or raised."""
+    blocks = build_ui(fake_run_service)
+    start_id = _start_button(blocks)._id
+    deps = blocks.get_config_file().get("dependencies", [])
+    by_name = {dep["api_name"]: dep for dep in deps if dep.get("api_name")}
+    on_start = by_name["on_start"]
+    busy = next(dep for dep in deps if dep["id"] == on_start["trigger_after"])
+    assert start_id in busy["outputs"]
+    after_start = [dep for dep in deps if dep["trigger_after"] == on_start["id"]]
+    assert len(after_start) == 1
+    assert start_id in after_start[0]["outputs"]
+
+
+def test_build_ui_with_a_gate_unlocks_start_after_the_account_recount(
+    fake_run_service: FakeRunService,
+) -> None:
+    gate = FakeGate(fake_run_service, user=USER, status=SIGNED_IN)
+    blocks = build_ui(fake_run_service, gate=gate)
+    start_id = _start_button(blocks)._id
+    deps = blocks.get_config_file().get("dependencies", [])
+    by_name = {dep["api_name"]: dep for dep in deps if dep.get("api_name")}
+    on_start, account = by_name["on_start"], by_name["account"]
+    after_start = [dep for dep in deps if dep["trigger_after"] == on_start["id"]]
+    assert [dep["outputs"] for dep in after_start] == [account["outputs"]]
+    after_account = [dep for dep in deps if dep["trigger_after"] == after_start[0]["id"]]
+    assert len(after_account) == 1
+    assert start_id in after_account[0]["outputs"]
 
 
 def test_mount_ui_reads_the_gate_from_app_state_and_identifies_by_cookie(

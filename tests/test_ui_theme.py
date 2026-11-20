@@ -15,6 +15,7 @@ import receipts.ui.app as ui_app
 from receipts.fakes import FakeRunService
 from receipts.ui.theme import (
     CSS,
+    FORM_CSS,
     HEADER_HTML,
     LANDING_URL,
     LOGO_ALT,
@@ -379,3 +380,12 @@ def test_wcag_contrast_for_secondary_text_and_focus_border_is_at_least_4_5_to_1(
 def test_status_class_rules_are_present_with_expected_colours() -> None:
     assert ".status-verified { color: #34d399; }" in CSS
     assert ".status-dropped { color: #f87171; }" in CSS
+
+
+def test_form_css_is_the_run_tab_block_inside_the_app_css() -> None:
+    assert FORM_CSS in CSS
+    assert ".rf {" in FORM_CSS
+    assert "#start {" in FORM_CSS
+    assert ".receipts-account {" in FORM_CSS
+    assert ".tab-container" in FORM_CSS
+    assert "url(" not in FORM_CSS
