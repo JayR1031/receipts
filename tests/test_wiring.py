@@ -1010,16 +1010,24 @@ async def test_the_run_id_from_gate_start_is_followed_through_app_state_run_serv
     assert {event.run_id for event in events} == {run_id}
 
 
-async def test_history_is_the_users_runs_signed_in_and_unowned_runs_signed_out(
+async def test_history_is_the_users_runs_plus_shared_unsigned_runs_signed_in(
     live: Live,
 ) -> None:
+    """Signed-in History is own runs plus the same unsigned list everyone sees (passcode /
+    Ask Receipts). Another person's claimed runs stay private."""
     user = await _signed_in(live)
     other = await _signed_in(live, "fake-sub-0002", "other@example.com")
     mine = await _seed(live.runs, 2, user_id=user.user_id, prefix="mine")
-    await _seed(live.runs, 1, user_id=other.user_id, prefix="other")
+    theirs = await _seed(live.runs, 1, user_id=other.user_id, prefix="other")
     unowned = await _seed(live.runs, 1, user_id=None, prefix="unowned")
-    assert [s.run_id for s in await live.gate.history(user)] == mine[::-1]  # newest first
-    assert [s.run_id for s in await live.gate.history(None)] == unowned
+    signed_in = await live.gate.history(user)
+    signed_out = await live.gate.history(None)
+    assert {s.run_id for s in signed_in} == {*mine, *unowned}
+    assert theirs[0] not in {s.run_id for s in signed_in}
+    assert [s.run_id for s in signed_out] == unowned
+    assert [s.started_at for s in signed_in] == sorted(
+        (s.started_at for s in signed_in), reverse=True
+    )
 
 
 async def test_account_signed_in_shows_the_email_and_todays_count_for_that_user(

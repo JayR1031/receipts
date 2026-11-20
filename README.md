@@ -54,7 +54,7 @@ and SEO.
 | | Where | What you need |
 |---|---|---|
 | **The app** | [receipts-h745.onrender.com](https://receipts-h745.onrender.com) | Reading past battlecards in History: nothing. Starting a run: the public demo passcode **`receipts-demo`**, or Google sign-in. Only the repository owner can sign in while the Google OAuth app is in Testing mode. |
-| **The voice agent** | [receipts-landing-nine.vercel.app](https://receipts-landing-nine.vercel.app), "Talk to Receipts" | Nothing. It answers from the app's stored battlecards (ElevenLabs). For a pair it has no receipts for, it offers to start a live run, and starts one only after you say yes; that run counts against the signed-out daily cap. After a start, it watches the run and, once it finishes, tells you the score and the top verified findings without you asking. That follow-up lives on ElevenLabs branch `voice-announce` until the owner merges it. |
+| **The voice agent** | [receipts-landing-nine.vercel.app](https://receipts-landing-nine.vercel.app), "Talk to Receipts" | Nothing. It answers from the app's stored battlecards (ElevenLabs). For a pair it has no receipts for, it offers to start a live run, and starts one only after you say yes; that run counts against the signed-out daily cap and then shows up in the app's History (signed out, and signed in alongside your own runs). After a start, it watches the run and, once it finishes, tells you the score and the top verified findings without you asking. That follow-up lives on ElevenLabs branch `voice-announce` until the owner merges it. |
 | **The API** | [API quickstart](#api-quickstart) | The passcode header (`X-Demo-Passcode: receipts-demo`) to start a run; nothing to read one. |
 
 > [!NOTE]
@@ -96,7 +96,7 @@ failed, the reason.
    `dropped`, `error`, `done`.
 4. The battlecard groups claims by domain. Each claim is marked `[verified]` or `[unverified]`
    with its note and its receipt (the quote and a link to the page, or the search query and rank).
-5. The History tab lists past runs, newest first: signed in, your own runs; signed out, the runs that belong to no one. Click one to reopen its battlecard.
+5. The History tab lists past runs, newest first: signed out, the runs that belong to no one (passcode, Ask Receipts, seed); signed in, your own runs plus those same shared runs. Another signed-in person's runs stay private. Click one to reopen its battlecard. A voice run's Event log is on that run; it does not stream into a different browser tab.
 
 <details>
 <summary>The progress log, exactly as the UI prints it (built-in demo replay, invented companies)</summary>
@@ -309,7 +309,8 @@ be one of the four `Domain` values in the contracts (`pricing`, `positioning_seo
 Every `POST /api/runs` is a signed-out run: it needs the passcode header `X-Demo-Passcode`
 (`PASSCODE_HEADER` in `src/receipts/api/routes.py`) and counts against the signed-out cap (20 per
 UTC day by default; the deployed app sets 10 and uses the public passcode `receipts-demo`), even with a session cookie. Reading needs no passcode. `GET /api/runs`
-without a session cookie lists the runs that belong to no one. Sign-in routes are in
+without a session cookie lists the runs that belong to no one; with a session cookie it lists
+that person's runs plus those same shared runs. Sign-in routes are in
 [`docs/api.md`](docs/api.md).
 
 ```bash
@@ -325,7 +326,7 @@ curl -sS -X POST "$BASE/api/runs" \
 # One run's battlecard (404 until a battlecard is stored)
 curl -sS "$BASE/api/runs/$RUN_ID"
 
-# History, newest first (no session cookie: the runs that belong to no one)
+# History, newest first (no session cookie: shared unsigned runs; with a cookie: yours plus those)
 curl -sS "$BASE/api/runs"
 ```
 
@@ -334,7 +335,7 @@ curl -sS "$BASE/api/runs"
 | `POST /api/runs` | `202 {"run_id": "..."}` | `401` passcode missing or wrong, `429` `10 of 10 signed-out runs used today (UTC); the limit resets at 00:00 UTC` (deployed cap), `503` `KEENABLE_API_KEY is not set`, `422` bad body |
 | `GET /api/runs/{run_id}` | `200` `Battlecard` | `404` `run <id> not found` |
 | `GET /share/{run_id}` | `200` the battlecard as a public HTML page with link-preview tags; the UI's "Share this battlecard" link | `404` HTML page |
-| `GET /api/runs` | `200` list of `RunSummary`: with a valid session cookie, that person's runs; without one, the runs with no user | none |
+| `GET /api/runs` | `200` list of `RunSummary`: without a session cookie, the runs with no user; with one, that person's runs plus those shared unsigned runs | none |
 | `GET /auth/me` | `200 {"email": "..."}` for a valid session | `401` `not signed in` |
 | `GET /healthz` | `200 {"status": "ok", "sha": "...", "version": "..."}` | none |
 

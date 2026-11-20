@@ -74,7 +74,7 @@ uv run python scripts/seed_demo_runs.py --n 1 --base-url https://receipts-h745.o
 ```
 
 Each seeded run is a signed-out run: it counts against `SIGNED_OUT_RUNS_PER_DAY` for that UTC day
-and appears in signed-out History.
+and appears in signed-out History, and in signed-in History alongside that person's own runs.
 
 ## Sign-in (issue #41, ADR-0008)
 
@@ -172,7 +172,8 @@ live runs, which spend Anthropic and Keenable credits.
    `401` (no cookie).
 2. Sign in with Google at https://receipts-h745.onrender.com/ui. The account line reads
    `<your address> · 0 of 5 runs used today (UTC)` and the passcode field is hidden.
-3. Start one run signed in. It appears in History while signed in, and not after signing out.
-4. Signed out, start one run with the passcode. It appears in History signed out, and not while
-   signed in.
+3. Start one run signed in. It appears in History while signed in, and not after signing out
+   (claimed runs stay private).
+4. Signed out, start one run with the passcode (or Ask Receipts). It appears in History signed
+   out, and still appears while signed in, in the same list as your own runs.
 5. The `runs.user_id` check above.

@@ -16,8 +16,9 @@ passcode; W2 may inject a `starter` that posts to the API with it instead.
 Sign-in (issue #41, ADR-0008): identity reaches the UI only through a `Gate` on
 `app.state.gate`. With one, the header gains an account line (runs used today, a sign-in link or
 a sign-out form), the passcode field shows only to signed-out visitors, runs start through
-`gate.start` and History lists `gate.history`. Each handler that needs identity takes Gradio's
-`gr.Request` and hands its Starlette request to `gate.identify`; Gradio's own auth hooks are not
+`gate.start` and History lists `gate.history` (own runs plus shared passcode / Ask Receipts
+runs when signed in). Each handler that needs identity takes Gradio's `gr.Request` and hands
+its Starlette request to `gate.identify`; Gradio's own auth hooks are not
 used, because they turn every signed-out visitor away and sign-in is optional. With no `Gate`,
 the UI behaves as it did before issue #41.
 """
@@ -68,6 +69,11 @@ FORM_HEAD = (
     "it can quote back to a source."
 )
 FORM_HINT = "A run takes about 2 minutes."
+HISTORY_NOTE = (
+    "Your runs (when signed in) and shared runs started with the passcode or Ask Receipts. "
+    "Other signed-in people's runs stay private. "
+    "A voice run's Event log is on that run — it does not stream into another browser tab."
+)
 
 
 def _request(subject: str, rival: str, category: str | None) -> RunRequest:
@@ -198,8 +204,8 @@ async def account_view(gate: Gate, request: gr.Request | None) -> tuple[str, dic
 async def history_view(
     service: RunService, gate: Gate | None, request: gr.Request | None
 ) -> tuple[list[list[str]], list[str]]:
-    """History rows and their run ids: the visitor's runs through the `Gate` when one is wired,
-    otherwise `service.list()` as before issue #41."""
+    """History rows and their run ids through the `Gate` when one is wired (own runs plus
+    shared passcode / Ask Receipts runs when signed in), otherwise `service.list()`."""
     rows: list[RunSummary] = await (
         service.list() if gate is None else gate.history(identify(gate, request))
     )
@@ -278,6 +284,7 @@ def _run_panel(
 
 
 def _history_panel(service: RunService, blocks: gr.Blocks, gate: Gate | None) -> None:
+    gr.Markdown(HISTORY_NOTE)
     refresh = gr.Button("Refresh", size="sm", elem_id="refresh")
     table = gr.Dataframe(
         headers=list(HISTORY_HEADERS), type="array", interactive=False, label="Runs, newest first"

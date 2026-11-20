@@ -334,14 +334,22 @@ async def _two_users_and_unowned(live: LiveApi) -> tuple[str, list[str], list[st
     return me.id, mine, unowned
 
 
-async def test_get_runs_with_a_session_cookie_lists_only_that_users_runs(
+async def test_get_runs_with_a_session_cookie_lists_that_users_runs_and_shared_unsigned_runs(
     live_api: LiveApi,
 ) -> None:
-    me, mine, _unowned = await _two_users_and_unowned(live_api)
+    """Ask Receipts / POST /api/runs stores a signed-out row; signed-in History must still
+    list it, and must never list another signed-in person's runs."""
+    me, mine, unowned = await _two_users_and_unowned(live_api)
     async with _client(live_api.app, _token(me)) as client:
         response = await client.get("/api/runs")
     assert response.status_code == 200
-    assert [row["run_id"] for row in response.json()] == mine[::-1]  # newest first
+    rows = response.json()
+    ids = [row["run_id"] for row in rows]
+    assert set(ids) == {*mine, *unowned}
+    assert not any(run_id.startswith("run-theirs-") for run_id in ids)
+    assert [row["started_at"] for row in rows] == sorted(
+        (row["started_at"] for row in rows), reverse=True
+    )
 
 
 @pytest.mark.parametrize("cookie", [None, "tampered"], ids=["no-cookie", "tampered-cookie"])
@@ -380,6 +388,9 @@ async def test_post_run_counts_as_a_signed_out_run_even_with_a_session_cookie(
     await live_api.service.wait(run_id)
     assert [s.run_id for s in await live_api.runs.list_runs_for(None)] == [run_id, *unowned]
     assert len(await live_api.runs.list_runs_for(me)) == 2  # the user's own two, unchanged
+    async with _client(live_api.app, _token(me)) as listed:
+        history = await listed.get("/api/runs")
+    assert run_id in {row["run_id"] for row in history.json()}
 
 
 async def test_post_run_checks_the_passcode_then_the_cap_then_the_key(

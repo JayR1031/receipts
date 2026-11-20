@@ -38,7 +38,7 @@ class Gate(Protocol):
         ...
 
     async def history(self, user: SessionUser | None) -> list[RunSummary]:
-        """That user's runs when signed in; the runs that belong to no user when signed out."""
+        """Signed out: runs with no user. Signed in: that person's runs plus those shared runs."""
         ...
 
     async def account(self, user: SessionUser | None) -> AccountStatus:
