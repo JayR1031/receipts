@@ -13,11 +13,13 @@ import json
 import logging
 import os
 import subprocess
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import pytest
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from mellea.backends.dummy import DummyBackend
 from mellea.core import (
@@ -494,6 +496,61 @@ async def test_a_repairer_that_raises_leaves_the_claim_to_the_verifier(
 
     dropped = [e for e in events if isinstance(e, DroppedEvent)]
     assert [d.reason for d in dropped] == [_note(BAD_QUOTE)]
+
+
+# --- blocking work stays off the event loop (Render's 5-second health check) ------------------
+
+
+async def test_the_agent_build_and_the_verifier_run_off_the_event_loop(
+    fake_keenable: FakeKeenable, sample_pack: DomainPack
+) -> None:
+    loop_thread = threading.get_ident()
+    model_threads: list[int] = []
+    verify_threads: list[int] = []
+
+    def model_factory(_pack: DomainPack) -> BaseChatModel:
+        model_threads.append(threading.get_ident())
+        return fake_llm(_agent(_draft(GOOD_QUOTE), _draft(BAD_QUOTE)))
+
+    def verify(
+        claim: Claim, pages: Mapping[str, FetchedPage], rows: Sequence[SearchResult]
+    ) -> Claim:
+        verify_threads.append(threading.get_ident())
+        return verify_claim(claim, pages, rows)
+
+    runner = SpecialistRunner(
+        fake_keenable, fake_keenable, model_factory=model_factory, verify=verify
+    )
+
+    events = await _events(runner, sample_pack)
+
+    assert len([e for e in events if isinstance(e, VerifiedEvent)]) == 1
+    assert model_threads and loop_thread not in model_threads
+    assert len(verify_threads) == 2 and loop_thread not in verify_threads
+
+
+async def test_the_repair_backend_is_built_off_the_event_loop(
+    fake_keenable: FakeKeenable, sample_pack: DomainPack
+) -> None:
+    loop_thread = threading.get_ident()
+    backend = RecordingBackend([_block(_draft(GOOD_QUOTE))])
+    backend_threads: list[int] = []
+
+    def build_backend() -> DummyBackend:
+        backend_threads.append(threading.get_ident())
+        return backend
+
+    runner = _runner(
+        fake_keenable,
+        _agent(_draft(BAD_QUOTE)),
+        None,
+        repair_factory=lambda _pack: MelleaClaimRepairer(build_backend),
+    )
+
+    events = await _events(runner, sample_pack)
+
+    assert len([e for e in events if isinstance(e, VerifiedEvent)]) == 1
+    assert backend_threads and loop_thread not in backend_threads
 
 
 # --- evidence and the live backend (no network) ------------------------------------------------
