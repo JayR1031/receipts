@@ -399,3 +399,15 @@ def test_progress_css_is_the_live_view_block_inside_the_app_css() -> None:
     assert ".rp {" in PROGRESS_CSS
     assert "#run-view" in PROGRESS_CSS
     assert "url(" not in PROGRESS_CSS
+
+
+def test_progress_lane_padding_is_not_zeroed_by_the_prose_reset() -> None:
+    """Lanes are `<li class="rp-lane">`. A `padding: 0 !important` reset on every `li`
+    puts domain titles flush against the lane border; exclude them so the claim-card
+    padding (`16px 18px`, same as `.bc-claim`) wins. Outer view padding matches `.rf`."""
+    assert "padding: 16px 18px !important" in PROGRESS_CSS
+    assert re.search(r"\.rp :is\([^)]+\):not\(\.rp-lane\)", PROGRESS_CSS)
+    compact = re.sub(r"\s+", " ", PROGRESS_CSS)
+    assert "#run-view:has(.rp) { " in compact
+    assert "padding: 28px !important" in compact
+    assert "url(" not in PROGRESS_CSS
