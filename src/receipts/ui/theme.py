@@ -371,10 +371,11 @@ PROGRESS_CSS = f"""
 #run-view {{ padding: 0 !important; border: 0 !important; background: transparent !important; }}
 #run-view:has(.rp) {{
   background: {SURFACE} !important; border: 1px solid {BORDER} !important;
-  border-radius: 12px; padding: 24px !important; overflow: hidden;
+  border-radius: 12px; padding: 28px !important; overflow: hidden;
 }}
 .rp {{ display: flex; flex-direction: column; gap: 20px; color: {TEXT}; }}
-.rp :is(p, h2, h3, ol, ul, li) {{
+/* Lanes are <li class="rp-lane">; excluding them keeps the claim-card padding. */
+.rp :is(p, h2, h3, ol, ul, li):not(.rp-lane) {{
   margin: 0 !important; padding: 0 !important; list-style: none !important;
 }}
 .rp-head {{ display: flex; flex-direction: column; gap: 10px; }}
@@ -399,6 +400,7 @@ PROGRESS_CSS = f"""
   padding: 16px 18px !important; background: {SURFACE_2}; border: 1px solid {BORDER};
   border-radius: {RADIUS};
 }}
+#run-view .rp-lane {{ padding: 16px 18px !important; }}
 .rp-lane-head {{ grid-row: 1 / span 3; display: flex; flex-direction: column; gap: 6px; }}
 .rp-lane-title {{ font-size: 0.9375rem; font-weight: 600; }}
 .rp-lane-queued {{ background: {SURFACE}; }}
@@ -432,7 +434,7 @@ PROGRESS_CSS = f"""
   border-radius: {RADIUS};
 }}
 @media (max-width: 640px) {{
-  #run-view:has(.rp) {{ padding: 18px !important; }}
+  #run-view:has(.rp) {{ padding: 20px !important; }}
   .rp-lane {{ grid-template-columns: minmax(0, 1fr); }}
   .rp-lane-head {{
     grid-row: auto; flex-direction: row; align-items: baseline; justify-content: space-between;
