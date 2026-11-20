@@ -72,7 +72,11 @@ def test_theme_and_css_are_importable_and_the_app_uses_them() -> None:
 
 def test_build_ui_puts_the_header_first(fake_run_service: FakeRunService) -> None:
     blocks = ui_app.build_ui(fake_run_service)
-    htmls = [b for b in blocks.blocks.values() if isinstance(b, gr.HTML)]
+    htmls = [
+        b
+        for b in blocks.blocks.values()
+        if isinstance(b, gr.HTML) and "card" not in (b.elem_classes or [])
+    ]
     assert [h.value for h in htmls] == [HEADER_HTML]
     first = min(blocks.blocks.values(), key=lambda b: b._id)
     assert first is htmls[0], "the header is not the first component"

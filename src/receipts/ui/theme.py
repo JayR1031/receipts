@@ -210,13 +210,77 @@ gradio-app {{
   font-family: var(--font) !important;
 }}
 .table-wrap th {{ color: {TEXT_SECONDARY}; font-weight: 500 !important; }}
-/* A rendered battlecard sits in a panel like the landing page's receipt preview. */
-.block.card:has(h1) {{
-  background: {SURFACE}; border: 1px solid {BORDER} !important; border-radius: {RADIUS};
-  padding: 24px !important;
+/* The battlecard (render.py): a score header, then one card per claim, as in the landing
+   page's receipt preview. */
+.block.card:has(.bc) {{
+  background: {SURFACE}; border: 1px solid {BORDER} !important; border-radius: 12px;
+  padding: 28px !important;
 }}
-.card a {{ color: {TEXT}; text-decoration: underline; text-underline-offset: 3px; }}
-.card a:hover {{ color: {TEXT_SECONDARY}; }}
+.bc {{ display: flex; flex-direction: column; gap: 28px; color: {TEXT}; }}
+.bc-head {{ display: flex; flex-direction: column; gap: 10px; }}
+.bc-eyebrow, .bc-method, .bc-domain-count {{
+  font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.04em;
+  color: {TEXT_SECONDARY}; margin: 0;
+}}
+.bc-eyebrow {{ text-transform: uppercase; }}
+.bc-domain-count {{ flex: none; font-weight: 400; }}
+.bc-title {{ margin: 0; font-size: 1.75rem; line-height: 1.2; font-weight: 600; }}
+.bc-vs {{ color: {TEXT_SECONDARY}; font-weight: 400; }}
+.bc-score {{ display: flex; align-items: baseline; gap: 10px; margin-top: 6px; }}
+.bc-score-num {{ font-size: 2.5rem; line-height: 1; font-weight: 600; letter-spacing: -0.02em; }}
+.bc-score-of {{ color: {TEXT_SECONDARY}; font-weight: 400; }}
+.bc-score-label {{ color: {TEXT_SECONDARY}; font-size: 0.875rem; }}
+.bc-meter {{
+  height: 4px; border-radius: 9999px; overflow: hidden; max-width: 420px;
+  background: {RAISED};
+}}
+.bc-meter-fill {{ display: block; height: 100%; background: {VERIFIED}; }}
+.bc-meta {{ margin: 0; color: {TEXT_SECONDARY}; font-size: 0.8125rem; }}
+.bc-domain {{ display: flex; flex-direction: column; gap: 10px; }}
+.bc-domain-title {{
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding-bottom: 10px; border-bottom: 1px solid {BORDER};
+  font-size: 1rem; font-weight: 600;
+}}
+.bc-claim {{
+  display: flex; flex-direction: column; gap: 10px; padding: 16px 18px;
+  background: {SURFACE_2}; border: 1px solid {BORDER}; border-radius: {RADIUS};
+}}
+.bc-claim-row {{ display: flex; align-items: flex-start; gap: 12px; }}
+.bc-mark {{ flex: none; width: 18px; font-weight: 700; line-height: 1.5rem; text-align: center; }}
+.bc-claim-text {{ flex: 1; margin: 0; line-height: 1.5rem; }}
+.bc-about {{
+  flex: none; font-size: 0.75rem; color: {TEXT_SECONDARY}; padding: 2px 10px;
+  border: 1px solid {BORDER}; border-radius: 9999px;
+}}
+/* Gradio's prose styles space out p, h2, h3 and blockquote; the card sets its own. */
+.bc :is(p, h2, h3, blockquote) {{ margin: 0 !important; }}
+.bc-quote {{
+  padding: 2px 0 2px 14px !important; border-left: 2px solid {BORDER_FOCUS} !important;
+  color: {TEXT_SECONDARY}; font-size: 0.875rem; line-height: 1.4rem; font-style: normal;
+}}
+.bc-quote, .bc-source, .bc-why {{ margin-left: 30px !important; }}
+.bc-source, .bc-why, .bc-search {{ font-size: 0.8125rem; color: {TEXT_SECONDARY} !important; }}
+.bc-url {{
+  color: {TEXT} !important; padding: 0 !important; text-decoration: underline;
+  text-underline-offset: 3px;
+}}
+a.bc-url:hover {{ color: {TEXT_SECONDARY} !important; }}
+.bc-claim-dropped {{ background: {SURFACE}; }}
+.bc-claim-dropped .bc-claim-text {{ color: {TEXT_SECONDARY}; }}
+.bc-dropped {{ display: flex; flex-direction: column; gap: 10px; }}
+.bc-dropped > summary {{
+  cursor: pointer; color: {TEXT_SECONDARY}; font-size: 0.875rem; padding: 6px 0;
+}}
+.bc-dropped > summary:hover {{ color: {TEXT}; }}
+.bc-dropped[open] > summary {{ margin-bottom: 10px; }}
+.bc-empty {{ margin: 0; color: {TEXT_SECONDARY}; }}
+@media (max-width: 640px) {{
+  .bc-claim-row {{ flex-wrap: wrap; }}
+  .bc-claim-text {{ flex: 1 1 calc(100% - 30px); }}
+  .bc-about {{ margin-left: 30px; }}
+  .bc-quote, .bc-source, .bc-why {{ margin-left: 0 !important; }}
+}}
 /* The only colours, for status marks; render.py wraps battlecard status marks in these classes. */
 .status-verified {{ color: {VERIFIED}; }}
 .status-dropped {{ color: {DROPPED}; }}

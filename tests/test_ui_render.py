@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from html import escape
 
-from receipts.contracts import Battlecard, Claim, RunEvent, RunId, RunSummary
+from receipts.contracts import Battlecard, Claim, QuoteReceipt, RunEvent, RunId, RunSummary
 from receipts.ui.render import (
     HISTORY_HEADERS,
     render_battlecard,
@@ -52,29 +53,62 @@ def _card(claims: list[Claim]) -> Battlecard:
     )
 
 
-def test_render_battlecard_counts_rows_and_receipts(sample_claims: list[Claim]) -> None:
-    md = render_battlecard(_card(sample_claims))
-    assert "**2 of 3 verified**" in md
-    assert "Acme Widgets" in md and "Zeta Gadgets" in md
-    rows = [line for line in md.splitlines() if line.startswith("- ")]
-    assert len(rows) == len(sample_claims)
+def test_render_battlecard_scores_groups_and_shows_every_receipt(
+    sample_claims: list[Claim],
+) -> None:
+    html = render_battlecard(_card(sample_claims))
+    assert 'aria-label="2 of 3 claims verified"' in html
+    assert 'style="width: 66.7%"' in html
+    assert "run-sample-0001" in html
+    assert "Acme Widgets" in html and "Zeta Gadgets" in html
+    assert html.count('<article class="bc-claim') == len(sample_claims)
     for claim in sample_claims:
-        assert claim.text in md
-        assert claim.receipt.url in md
+        assert escape(claim.text) in html
+        assert f'href="{escape(claim.receipt.url, quote=True)}"' in html
     # quote receipts show the quote; search receipts show query and rank
-    assert "Plans start at 9 dollars per seat" in md
-    assert "zeta gadgets pricing" in md and "#1" in md
-    # one verified marker per verified claim, one unverified marker for the rest
-    assert md.count('<span class="status-verified">[verified]</span>') == 2
-    assert md.count('<span class="status-dropped">[unverified]</span>') == 1
-    assert md.count("[unverified]") == 1
-    assert "## pricing" in md  # grouped by domain
+    assert "Plans start at 9 dollars per seat" in html
+    assert "zeta gadgets pricing" in html and "result #1" in html
+    assert html.count('class="bc-mark status-verified"') == 2
+    assert html.count('class="bc-mark status-dropped"') == 1
+    assert "Pricing" in html and "2 of 3 verified" in html  # grouped by domain
+
+
+def test_dropped_claims_fold_under_the_verified_ones_and_say_why(
+    sample_claims: list[Claim],
+) -> None:
+    dropped = next(c for c in sample_claims if not c.verified)
+    noted = dropped.model_copy(update={"verify_note": "quote not on the page"})
+    claims = [c for c in sample_claims if c.verified] + [noted]
+    html = render_battlecard(_card(claims))
+    folded = html.split('<details class="bc-dropped">', 1)[1]
+    assert "1 dropped claim, and why" in folded
+    assert escape(dropped.text) in folded
+    assert "quote not on the page" in folded
+    assert all(escape(c.text) not in folded for c in claims if c.verified)
+
+
+def test_render_battlecard_escapes_web_text_and_links_only_http(
+    sample_claims: list[Claim],
+) -> None:
+    claim = next(c for c in sample_claims if isinstance(c.receipt, QuoteReceipt))
+    hostile = claim.model_copy(
+        update={
+            "text": "<script>alert(1)</script>",
+            "receipt": claim.receipt.model_copy(
+                update={"quote": '"><img src=x onerror=alert(1)>', "url": "javascript:alert(1)"}
+            ),
+        }
+    )
+    html = render_battlecard(_card([hostile]))
+    assert "<script>" not in html and "<img" not in html
+    assert "&lt;script&gt;" in html
+    assert "href=" not in html and "javascript:" not in html
 
 
 def test_render_battlecard_with_no_claims_still_shows_the_count() -> None:
-    md = render_battlecard(_card([]))
-    assert "**2 of 3 verified**" in md
-    assert "no claims" in md.lower()
+    html = render_battlecard(_card([]))
+    assert 'aria-label="2 of 3 claims verified"' in html
+    assert "no claims" in html.lower()
 
 
 def test_render_history_one_row_per_summary_newest_first_as_given() -> None:
