@@ -8,6 +8,7 @@ import struct
 from importlib.resources import files
 
 import gradio as gr
+import pytest
 from gradio.themes import Base as BaseTheme
 from gradio.themes.utils import colors
 
@@ -25,8 +26,7 @@ from receipts.ui.theme import (
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 DATA_URI_PREFIX = "data:image/png;base64,"
-HEX = re.compile(r"#[0-9a-fA-F]{6}\b")
-RGB = re.compile(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)")
+RGB = re.compile(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)", re.IGNORECASE)
 # The two status colours (emerald-400, red-400) are the only chromatic values allowed.
 STATUS_COLOURS = {"#34d399", "#f87171"}
 HUES = ("primary", "secondary", "neutral")
@@ -107,8 +107,8 @@ def test_buttons_are_monochrome_in_light_and_dark_mode() -> None:
 
 
 def test_the_only_chromatic_colours_are_the_two_status_colours() -> None:
-    theme_values = [v for k, v in vars(THEME).items() if isinstance(v, str) and k != "name"]
-    found = {_expand_3_to_6_hex(c) for text in [*theme_values, CSS] for c in _css_hex_colours(text)}
+    theme_values = _theme_string_values()
+    found = {c for text in [*theme_values, CSS] for c in _css_hex_colours(text)}
     chromatic = {c for c in found if not _is_grey(c)}
     assert chromatic <= STATUS_COLOURS, f"unexpected colours: {sorted(chromatic - STATUS_COLOURS)}"
     rgb = {m for text in [*theme_values, CSS] for m in RGB.findall(text)}
@@ -149,15 +149,6 @@ def _contrast_ratio(fg: str, bg: str) -> float:
     return (lighter + 0.05) / (darker + 0.05)
 
 
-def _expand_hex_colour(colour: str) -> str:
-    colour = colour.strip().lower()
-    if re.fullmatch(r"#[0-9a-f]{6}", colour):
-        return colour
-    if re.fullmatch(r"#[0-9a-f]{3}", colour):
-        return "#" + "".join(ch * 2 for ch in colour[1:])
-    raise ValueError(f"unsupported colour format: {colour!r}")
-
-
 def _theme_colour(attr: str) -> str:
     value = str(getattr(THEME, attr))
     return _expand_hex_colour(value)
@@ -174,18 +165,71 @@ def test_tagline_constant_matches_the_product_copy() -> None:
 
 
 def _css_hex_colours(text: str) -> set[str]:
-    return {m.group(0).lower() for m in re.finditer(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\b", text)}
+    return {
+        _expand_hex_colour(m.group(0))
+        for m in re.finditer(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\b", text)
+    }
 
 
-def _expand_3_to_6_hex(colour: str) -> str:
-    c = colour.lower()
-    if re.fullmatch(r"#[0-9a-f]{3}", c):
-        return "#" + "".join(ch * 2 for ch in c[1:])
-    return c
+def _expand_hex_colour(colour: str) -> str:
+    colour = colour.lower()
+    if re.fullmatch(r"#[0-9a-f]{3}", colour):
+        return "#" + "".join(ch * 2 for ch in colour[1:])
+    if re.fullmatch(r"#[0-9a-f]{6}", colour):
+        return colour
+    raise ValueError(f"unsupported colour format: {colour}")
 
 
 def _theme_string_values() -> list[str]:
     return [v for k, v in vars(THEME).items() if isinstance(v, str) and k != "name"]
+
+
+COMMENT_RE = re.compile(r"/\*.*?\*/", flags=re.DOTALL)
+DECLARATION_VALUE_RE = re.compile(r"[;{]\s*[-a-zA-Z]+\s*:\s*([^;}]*)")
+COLOUR_FUNCTION_RE = re.compile(
+    r"\b(hsla?|hwb|lab|lch|oklab|oklch|color)\s*\(",
+    flags=re.IGNORECASE,
+)
+
+
+def _scrub_svg_data_uris(text: str) -> str:
+    return re.sub(
+        r"url\(\s*['\"]?data:image/svg\+xml,.*?['\"]?\s*\)",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
+def _strip_comments(text: str) -> str:
+    return COMMENT_RE.sub("", text)
+
+
+def _named_colour_values(css_text: str) -> list[str]:
+    css = _strip_comments(_scrub_svg_data_uris(css_text))
+    values = "\n".join(DECLARATION_VALUE_RE.findall(css))
+    tokens = re.findall(r"\b[a-z]+\b", values, flags=re.IGNORECASE)
+    return sorted({tok.lower() for tok in tokens if tok.lower() in CSS_NAMED_COLOURS})
+
+
+def _named_theme_colour_values(theme_values: list[str]) -> list[str]:
+    offenders: set[str] = set()
+    for value in theme_values:
+        scrubbed = _scrub_svg_data_uris(value)
+        tokens = re.findall(r"\b[a-z]+\b", scrubbed, flags=re.IGNORECASE)
+        offenders.update(tok.lower() for tok in tokens if tok.lower() in CSS_NAMED_COLOURS)
+    return sorted(offenders)
+
+
+def _forbidden_non_hex_colour_functions(text: str) -> set[str]:
+    scrubbed = _strip_comments(_scrub_svg_data_uris(text))
+    return {m.group(1).lower() for m in COLOUR_FUNCTION_RE.finditer(scrubbed)}
+
+
+def _non_grey_rgb_calls(text: str) -> set[tuple[str, str, str]]:
+    scrubbed = _strip_comments(_scrub_svg_data_uris(text))
+    rgb = RGB.findall(scrubbed)
+    return {(r, g, b) for r, g, b in rgb if not (r == g == b)}
 
 
 CSS_NAMED_COLOURS = {
@@ -342,17 +386,36 @@ CSS_NAMED_COLOURS = {
 
 def test_theme_colours_have_no_named_tokens_and_no_hsl_or_hsla() -> None:
     theme_values = [str(v).strip().lower() for v in _theme_string_values()]
-    named_theme = [v for v in theme_values if v in CSS_NAMED_COLOURS]
-    assert named_theme == [], f"named theme colours found: {sorted(set(named_theme))}"
 
-    raw = "\n".join([*theme_values, CSS]).lower()
-    scrubbed = re.sub(r"url\(\"data:image/svg\+xml,.*?\"\)", "", raw)
+    named_theme = _named_theme_colour_values(theme_values)
+    assert named_theme == [], f"named theme colours found: {named_theme}"
 
-    css_named = re.findall(r"\b[a-z]+\b", scrubbed)
-    offenders = sorted({tok for tok in css_named if tok in CSS_NAMED_COLOURS})
+    scrubbed_css = _scrub_svg_data_uris(CSS)
+    named_css = _named_colour_values(scrubbed_css)
+    assert named_css == [], f"named CSS colours found: {named_css}"
+
+    forbidden = sorted(
+        _forbidden_non_hex_colour_functions("\n".join([*theme_values, scrubbed_css]))
+    )
+    assert forbidden == [], f"non-hex colour functions found: {forbidden}"
+
+    offenders = sorted(_non_grey_rgb_calls("\n".join([*theme_values, scrubbed_css])))
+    assert offenders == [], f"non-grey rgb() values: {offenders}"
+
+
+def _assert_no_named_colours(css: str) -> None:
+    offenders = _named_colour_values(css)
     assert offenders == [], f"named CSS colours found: {offenders}"
 
-    assert re.search(r"hsla?\(", scrubbed) is None
+
+def _assert_no_non_hex_colour_functions(css: str) -> None:
+    offenders = sorted(_forbidden_non_hex_colour_functions(css))
+    assert offenders == [], f"non-hex colour functions found: {offenders}"
+
+
+def _assert_greyscale_rgb(css: str) -> None:
+    offenders = sorted(_non_grey_rgb_calls(css))
+    assert offenders == [], f"non-grey rgb() values: {offenders}"
 
 
 def test_all_hex_colours_are_6_digit_or_3_digit_only_no_4_or_8_digit_alpha() -> None:
@@ -372,6 +435,52 @@ def test_wcag_contrast_for_secondary_text_and_focus_border_is_at_least_4_5_to_1(
     assert _contrast_ratio(focus, bg) >= 4.5
 
 
+def test_named_colour_guard_checks_declaration_values_only() -> None:
+    assert _named_colour_values(".x { white-space: pre-wrap; }") == []
+    assert _named_colour_values(".x { color: white; }") == ["white"]
+    assert _named_colour_values(".x { background: orange; }") == ["orange"]
+
+
+def test_named_colour_guard_catches_additional_declarations() -> None:
+    assert _named_colour_values(".bad { border-left: 1px solid orange; }") == ["orange"]
+    assert _named_colour_values(".bad { border-bottom-color: red; }") == ["red"]
+    assert _named_colour_values(".bad { caret-color: orange; }") == ["orange"]
+    assert _named_colour_values(".bad { background-image: linear-gradient(red, blue); }") == [
+        "blue",
+        "red",
+    ]
+    assert _named_colour_values(".bad { /* note */ color: orange; }") == ["orange"]
+
+
+def test_named_colour_guard_catches_theme_values() -> None:
+    assert _named_theme_colour_values(["0 0 0 2px red"]) == ["red"]
+
+
+def test_css_disallows_non_hex_colour_functions_case_insensitively() -> None:
+    for css in (
+        ".x { color: oklch(0.7 0.2 30); }",
+        ".x { color: OKLCH(0.7 0.2 30); }",
+        ".x { color: hwb(20 0% 0%); }",
+    ):
+        with pytest.raises(AssertionError):
+            _assert_no_non_hex_colour_functions(css)
+
+
+def test_css_rgb_greyscale_guard_is_case_insensitive() -> None:
+    assert _non_grey_rgb_calls(".x { color: RGB(255, 0, 0); }") == {("255", "0", "0")}
+    with pytest.raises(AssertionError):
+        _assert_greyscale_rgb(".x { color: RGB(255, 0, 0); }")
+
+
+def test_rgb_regex_matches_uppercase_rgb() -> None:
+    assert RGB.findall("RGB(255, 0, 0)") == [("255", "0", "0")]
+
+
 def test_status_class_rules_are_present_with_expected_colours() -> None:
     assert ".status-verified { color: #34d399; }" in CSS
     assert ".status-dropped { color: #f87171; }" in CSS
+
+
+def test_expand_hex_colour_rejects_non_hex_inputs() -> None:
+    with pytest.raises(ValueError, match="unsupported colour format"):
+        _expand_hex_colour("rgb(0, 0, 0)")
