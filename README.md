@@ -271,6 +271,21 @@ can be rejected (195 of 5,998 true quotes in the same tests). Prices with a suff
 of that is also a known limit: a quote cut mid-word at `$5m` from a page's `$5mo` reads five
 million, so a true `$5` claim is rejected and a wrong `$5,000,000` one verifies.
 
+### How accurate is the verifier?
+
+Measured on 231 claims from ten real runs, each labeled by whether its receipt really backs it
+(issue #59; [docs/verifier-eval.md](docs/verifier-eval.md)). On the 147 whose pages and search
+rows were recorded, the verifier is re-run offline in CI:
+
+- **Recall 99%** (96 of 97): it almost never rejects a claim its receipt backs.
+- **Precision 74%** (96 of 129; 95% CI 66% to 81%): about one verified claim in four says more
+  than its receipt. Almost all of those add words, not numbers (a feature, an audience, a
+  comparison with other search results), which the number rules do not read.
+- **Mellea's rewrites** of the 17 failing claims were all backed by their receipts.
+
+CI fails if precision drops below 72% or recall below 97%. The labels were drafted by an AI
+assistant and reviewed by the repository owner; one labeler, pages as fetched on 2026-11-20.
+
 ## Add a specialist in one YAML file
 
 A specialist is configuration, not code. This is `src/receipts/packs/pricing.yaml`, with the
