@@ -54,7 +54,7 @@ and SEO.
 | | Where | What you need |
 |---|---|---|
 | **The app** | [receipts-h745.onrender.com](https://receipts-h745.onrender.com) | Reading past battlecards in History: nothing. Starting a run: the public demo passcode **`receipts-demo`**, or Google sign-in. Only the repository owner can sign in while the Google OAuth app is in Testing mode. |
-| **The voice agent** | [receipts-landing-nine.vercel.app](https://receipts-landing-nine.vercel.app), "Talk to Receipts" | Nothing. It answers from the app's stored battlecards (ElevenLabs). For a pair it has no receipts for, it offers to start a live run, and starts one only after you say yes; that run counts against the signed-out daily cap. |
+| **The voice agent** | [receipts-landing-nine.vercel.app](https://receipts-landing-nine.vercel.app), "Talk to Receipts" | Nothing. It answers from the app's stored battlecards (ElevenLabs). For a pair it has no receipts for, it offers to start a live run, and starts one only after you say yes; that run counts against the signed-out daily cap. After a start, it watches the run and, once it finishes, tells you the score and the top verified findings without you asking. That follow-up lives on ElevenLabs branch `voice-announce` until the owner merges it. |
 | **The API** | [API quickstart](#api-quickstart) | The passcode header (`X-Demo-Passcode: receipts-demo`) to start a run; nothing to read one. |
 
 > [!NOTE]
