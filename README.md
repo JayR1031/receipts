@@ -53,14 +53,14 @@ and SEO.
 
 | | Where | What you need |
 |---|---|---|
-| **The app** | [receipts-h745.onrender.com](https://receipts-h745.onrender.com) | Reading past battlecards in History: nothing. Starting a run: the demo passcode, or Google sign-in. Only the repository owner can sign in while the Google OAuth app is in Testing mode. |
+| **The app** | [receipts-h745.onrender.com](https://receipts-h745.onrender.com) | Reading past battlecards in History: nothing. Starting a run: the public demo passcode **`receipts-demo`**, or Google sign-in. Only the repository owner can sign in while the Google OAuth app is in Testing mode. |
 | **The voice agent** | [receipts-landing-nine.vercel.app](https://receipts-landing-nine.vercel.app), "Talk to Receipts" | Nothing. It reads the app's public run list and battlecards (ElevenLabs). |
-| **The API** | [API quickstart](#api-quickstart) | The passcode header to start a run; nothing to read one. |
+| **The API** | [API quickstart](#api-quickstart) | The passcode header (`X-Demo-Passcode: receipts-demo`) to start a run; nothing to read one. |
 
 > [!NOTE]
 > **Status on `main` (2026-11-18).**
 > - **Live comparisons.** Claude agents search and fetch with Keenable, every claim goes through the verifier, and runs are stored in Neon. A claim that fails gets up to two Mellea rewrites; those were measured locally, not yet on the deployed app ([Demo: Mel vs Warp](#demo-mel-vs-warp)).
-> - **Limits.** Signed-out runs (the UI with the passcode, and every API start) share one cap per UTC day: 5 on the deployed app, where `SIGNED_OUT_RUNS_PER_DAY` is set to 5 (2026-11-18); the code's default is 20. A signed-in person may start 5 per UTC day (issue #41, ADR-0008).
+> - **Limits.** Signed-out runs (the UI with the passcode, and every API start) share one cap per UTC day: 10 on the deployed app, where `SIGNED_OUT_RUNS_PER_DAY` is set to 10 (2026-11-20); the code's default is 20. The deployed passcode, `receipts-demo`, is public on purpose: the shared cap, not the passcode, is what limits spend. A signed-in person may start 5 per UTC day (issue #41, ADR-0008).
 > - **Without the live settings** (`ANTHROPIC_API_KEY`, `KEENABLE_API_KEY` and `DATABASE_URL`), the app serves one built-in demo run of invented companies instead (`src/receipts/api/wiring.py`). The UI replays it with no setup at all, and offers no sign-in. `POST /api/runs` still checks the passcode first (401 without one) and then the Keenable key (503 without it).
 > - **First load.** The app runs on Render's free tier, which sleeps after 15 minutes idle, so the first load can take about a minute (Render's free-tier docs, cited in ADR-0005).
 
@@ -90,7 +90,7 @@ failed, the reason.
 
 ## What you see in 30 seconds
 
-1. Type a **subject** (you), a **rival** and an optional **category**. Signed out, add the demo passcode; signed in with Google, the passcode field is hidden and the line under the header shows your count, such as `0 of 5 runs used today (UTC)`.
+1. Type a **subject** (you), a **rival** and an optional **category**. Signed out, add the demo passcode (`receipts-demo` on the deployed app); signed in with Google, the passcode field is hidden and the line under the header shows your count, such as `0 of 5 runs used today (UTC)`.
 2. Two specialists run in parallel, one per domain pack: `pricing` and `positioning_seo`. The built-in demo replay, used when the live settings are not all set, covers the pricing pack only.
 3. The progress log names each step: `started`, `search`, `fetch`, `claim`, `verified`,
    `dropped`, `error`, `done`.
@@ -308,12 +308,13 @@ be one of the four `Domain` values in the contracts (`pricing`, `positioning_seo
 
 Every `POST /api/runs` is a signed-out run: it needs the passcode header `X-Demo-Passcode`
 (`PASSCODE_HEADER` in `src/receipts/api/routes.py`) and counts against the signed-out cap (20 per
-UTC day by default; the deployed app sets 5), even with a session cookie. Reading needs no passcode. `GET /api/runs`
+UTC day by default; the deployed app sets 10 and uses the public passcode `receipts-demo`), even with a session cookie. Reading needs no passcode. `GET /api/runs`
 without a session cookie lists the runs that belong to no one. Sign-in routes are in
 [`docs/api.md`](docs/api.md).
 
 ```bash
 BASE=https://receipts-h745.onrender.com
+DEMO_PASSCODE=receipts-demo
 
 # Start a run: 202 with {"run_id": "run-…"}. The deployed app runs a live comparison. With the passcode and Keenable key set but the other live settings missing, any subject and rival return the Acme vs Zeta demo battlecard
 curl -sS -X POST "$BASE/api/runs" \
@@ -330,7 +331,7 @@ curl -sS "$BASE/api/runs"
 
 | Call | Success | Errors |
 |---|---|---|
-| `POST /api/runs` | `202 {"run_id": "..."}` | `401` passcode missing or wrong, `429` `5 of 5 signed-out runs used today (UTC); the limit resets at 00:00 UTC` (deployed cap), `503` `KEENABLE_API_KEY is not set`, `422` bad body |
+| `POST /api/runs` | `202 {"run_id": "..."}` | `401` passcode missing or wrong, `429` `10 of 10 signed-out runs used today (UTC); the limit resets at 00:00 UTC` (deployed cap), `503` `KEENABLE_API_KEY is not set`, `422` bad body |
 | `GET /api/runs/{run_id}` | `200` `Battlecard` | `404` `run <id> not found` |
 | `GET /api/runs` | `200` list of `RunSummary`: with a valid session cookie, that person's runs; without one, the runs with no user | none |
 | `GET /auth/me` | `200 {"email": "..."}` for a valid session | `401` `not signed in` |
@@ -416,7 +417,7 @@ committed file.
 | `GOOGLE_CLIENT_SECRET` | The Google OAuth client's secret, sent only to Google's token endpoint; sign-in needs it |
 | `SESSION_SECRET` | Signs the session and sign-in cookies; sign-in needs it. Locally, a throwaway: `export SESSION_SECRET="$(openssl rand -hex 32)"` |
 | `RUNS_PER_USER_PER_DAY` | Runs a signed-in person may start per UTC day (default 5) |
-| `SIGNED_OUT_RUNS_PER_DAY` | Runs all signed-out visitors and API calls together may start per UTC day (default 20; set to 5 on the deployed app) |
+| `SIGNED_OUT_RUNS_PER_DAY` | Runs all signed-out visitors and API calls together may start per UTC day (default 20; set to 10 on the deployed app) |
 
 Sign-in needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` and `DATABASE_URL`; with
 any missing, `/auth/login` answers 503 naming it, never its value. The UI shows "Sign in with
