@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from html import escape
 from itertools import groupby
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from receipts.contracts import (
     Battlecard,
@@ -86,6 +86,7 @@ def render_event_line(event: RunEvent) -> str:
     return f"{_clock(event.ts)} [{event.kind}]{where} {_describe(event)}"
 
 
+SHARE_PATH = "/share"
 DOMAIN_TITLES: dict[str, str] = {
     "pricing": "Pricing",
     "positioning_seo": "Positioning & SEO",
@@ -190,9 +191,20 @@ def _score_html(card: Battlecard) -> str:
     )
 
 
-def render_battlecard(card: Battlecard) -> str:
+def share_path(card: Battlecard) -> str:
+    """The battlecard's public, read-only page (`receipts.api.share`)."""
+    return f"{SHARE_PATH}/{quote(str(card.run_id), safe='')}"
+
+
+def render_battlecard(card: Battlecard, *, share: bool = False) -> str:
     """HTML: a score header, then each domain's verified claims, with its dropped ones folded
-    underneath, each showing why it was dropped."""
+    underneath, each showing why it was dropped. `share` adds a link to the card's share page."""
+    link = (
+        f'<a class="bc-share" href="{escape(share_path(card), quote=True)}" target="_blank" '
+        'rel="noopener">Share this battlecard ↗</a>'
+        if share
+        else ""
+    )
     head = (
         '<header class="bc-head">'
         f'<p class="bc-eyebrow">Battlecard · {escape(str(card.run_id))}</p>'
@@ -200,7 +212,7 @@ def render_battlecard(card: Battlecard) -> str:
         f"{escape(card.rival)}</h2>"
         f"{_score_html(card)}"
         f'<p class="bc-meta">Started {_ts(card.started_at)} · '
-        f"took {_duration(card.started_at, card.finished_at)}</p></header>"
+        f"took {_duration(card.started_at, card.finished_at)}</p>{link}</header>"
     )
     if not card.claims:
         return (

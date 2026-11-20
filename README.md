@@ -333,6 +333,7 @@ curl -sS "$BASE/api/runs"
 |---|---|---|
 | `POST /api/runs` | `202 {"run_id": "..."}` | `401` passcode missing or wrong, `429` `10 of 10 signed-out runs used today (UTC); the limit resets at 00:00 UTC` (deployed cap), `503` `KEENABLE_API_KEY is not set`, `422` bad body |
 | `GET /api/runs/{run_id}` | `200` `Battlecard` | `404` `run <id> not found` |
+| `GET /share/{run_id}` | `200` the battlecard as a public HTML page with link-preview tags; the UI's "Share this battlecard" link | `404` HTML page |
 | `GET /api/runs` | `200` list of `RunSummary`: with a valid session cookie, that person's runs; without one, the runs with no user | none |
 | `GET /auth/me` | `200 {"email": "..."}` for a valid session | `401` `not signed in` |
 | `GET /healthz` | `200 {"status": "ok", "sha": "...", "version": "..."}` | none |
