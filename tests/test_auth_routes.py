@@ -737,7 +737,9 @@ def test_the_503_names_the_first_missing_variable_in_order(
     assert h.browser.get("/auth/login").json() == {"detail": "SESSION_SECRET is not set"}
 
 
-def test_missing_sign_in_settings_names_the_four_in_order() -> None:
+def test_missing_sign_in_settings_names_the_four_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in SIGN_IN_NAMES:
+        monkeypatch.delenv(name, raising=False)
     assert routes.missing_sign_in_settings(Settings.model_validate({})) == SIGN_IN_NAMES
     assert routes.missing_sign_in_settings(Settings.model_validate(_lower(SIGN_IN_ENV))) == ()
     blank = {**_lower(SIGN_IN_ENV), "google_client_secret": " ", "database_url": ""}
