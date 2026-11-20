@@ -365,6 +365,82 @@ a.bc-url:hover {{ color: {TEXT_SECONDARY} !important; }}
 .status-dropped {{ color: {DROPPED}; }}
 """
 
+PROGRESS_CSS = f"""
+/* The live progress view (render.py `render_progress`): one lane per domain, then a one-line
+   summary once the run is done. Listed before the battlecard so its status classes win. */
+#run-view {{ padding: 0 !important; border: 0 !important; background: transparent !important; }}
+#run-view:has(.rp) {{
+  background: {SURFACE} !important; border: 1px solid {BORDER} !important;
+  border-radius: 12px; padding: 24px !important; overflow: hidden;
+}}
+.rp {{ display: flex; flex-direction: column; gap: 20px; color: {TEXT}; }}
+.rp :is(p, h2, h3, ol, ul, li) {{
+  margin: 0 !important; padding: 0 !important; list-style: none !important;
+}}
+.rp-head {{ display: flex; flex-direction: column; gap: 10px; }}
+.rp-top {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; }}
+.rp-eyebrow, .rp-clock, .rp-lane-status, .rp-count {{
+  font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.04em;
+  color: {TEXT_SECONDARY};
+}}
+.rp-eyebrow {{ display: flex; align-items: center; gap: 8px; text-transform: uppercase; }}
+.rp-dot {{ flex: none; width: 8px; height: 8px; border-radius: 9999px; background: {TEXT}; }}
+.rp-done .rp-dot {{ background: {VERIFIED}; }}
+.rp-title {{ font-size: 1.375rem; line-height: 1.25; font-weight: 600; }}
+.rp-vs {{ color: {TEXT_SECONDARY}; font-weight: 400; }}
+.rp-meter {{ height: 4px; border-radius: 9999px; overflow: hidden; background: {RAISED}; }}
+.rp-meter-fill {{ display: block; height: 100%; background: {TEXT}; transition: width 0.4s ease; }}
+.rp-done .rp-meter-fill {{ background: {VERIFIED}; }}
+.rp-meta, .rp-error, .rp-notice-text {{ color: {TEXT_SECONDARY}; font-size: 0.8125rem; }}
+.rp-done {{ gap: 10px; }}
+.rp-lanes {{ display: flex; flex-direction: column; gap: 10px; }}
+.rp-lane {{
+  display: grid; grid-template-columns: 180px minmax(0, 1fr); column-gap: 24px; row-gap: 10px;
+  padding: 16px 18px !important; background: {SURFACE_2}; border: 1px solid {BORDER};
+  border-radius: {RADIUS};
+}}
+.rp-lane-head {{ grid-row: 1 / span 3; display: flex; flex-direction: column; gap: 6px; }}
+.rp-lane-title {{ font-size: 0.9375rem; font-weight: 600; }}
+.rp-lane-queued {{ background: {SURFACE}; }}
+.rp-lane-queued .rp-lane-title {{ color: {TEXT_SECONDARY}; }}
+.rp-steps {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }}
+.rp-step {{
+  display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem; color: {TEXT_SECONDARY};
+}}
+.rp-step::before {{
+  content: ""; display: block; height: 4px; border-radius: 9999px; background: {RAISED};
+}}
+.rp-step-done::before {{ background: {TEXT}; }}
+.rp-step-current {{ color: {TEXT}; }}
+.rp-step-current::before {{ background: {TEXT_SECONDARY}; }}
+.rp-running .rp-dot, .rp-running .rp-step-current::before {{
+  animation: rp-pulse 1.4s ease-in-out infinite;
+}}
+.rp-lane-error .rp-step-current::before {{ background: {DROPPED}; animation: none; }}
+.rp-counts {{ display: flex; flex-wrap: wrap; gap: 4px 16px; }}
+.rp-count-num {{ color: {TEXT}; font-weight: 600; }}
+.rp-activity {{
+  font-size: 0.8125rem; color: {TEXT_SECONDARY}; overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1;
+}}
+@keyframes rp-pulse {{ 50% {{ opacity: 0.35; }} }}
+@media (prefers-reduced-motion: reduce) {{
+  .rp-running .rp-dot, .rp-running .rp-step-current::before {{ animation: none; }}
+}}
+.rp-log {{
+  background: transparent !important; border: 1px solid {BORDER} !important;
+  border-radius: {RADIUS};
+}}
+@media (max-width: 640px) {{
+  #run-view:has(.rp) {{ padding: 18px !important; }}
+  .rp-lane {{ grid-template-columns: minmax(0, 1fr); }}
+  .rp-lane-head {{
+    grid-row: auto; flex-direction: row; align-items: baseline; justify-content: space-between;
+  }}
+  .rp-activity {{ -webkit-line-clamp: 2; line-clamp: 2; }}
+}}
+"""
+
 CSS = f"""
 /* Gradio's body is a flex column, so an auto-margined container shrinks to its widest child. */
 .gradio-container {{ width: 100%; max-width: 1100px !important; margin: 0 auto; }}
@@ -408,6 +484,7 @@ gradio-app {{
   background: {SURFACE}; border: 1px solid {BORDER} !important; border-radius: 12px;
   padding: 28px !important;
 }}
+{PROGRESS_CSS}
 {BATTLECARD_CSS}
 footer {{ filter: grayscale(1); opacity: 0.6; }}
 """

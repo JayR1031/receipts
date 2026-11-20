@@ -20,6 +20,7 @@ from receipts.ui.theme import (
     LANDING_URL,
     LOGO_ALT,
     LOGO_DATA_URI,
+    PROGRESS_CSS,
     TAGLINE,
     THEME,
 )
@@ -76,7 +77,9 @@ def test_build_ui_puts_the_header_first(fake_run_service: FakeRunService) -> Non
     htmls = [
         b
         for b in blocks.blocks.values()
-        if isinstance(b, gr.HTML) and "card" not in (b.elem_classes or [])
+        if isinstance(b, gr.HTML)
+        and "card" not in (b.elem_classes or [])
+        and b.elem_id != ui_app.PROGRESS_VIEW_ID
     ]
     assert [h.value for h in htmls] == [HEADER_HTML]
     first = min(blocks.blocks.values(), key=lambda b: b._id)
@@ -389,3 +392,10 @@ def test_form_css_is_the_run_tab_block_inside_the_app_css() -> None:
     assert ".receipts-account {" in FORM_CSS
     assert ".tab-container" in FORM_CSS
     assert "url(" not in FORM_CSS
+
+
+def test_progress_css_is_the_live_view_block_inside_the_app_css() -> None:
+    assert PROGRESS_CSS in CSS
+    assert ".rp {" in PROGRESS_CSS
+    assert "#run-view" in PROGRESS_CSS
+    assert "url(" not in PROGRESS_CSS

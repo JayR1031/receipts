@@ -482,7 +482,8 @@ async def _ui_run(app: FastAPI, passcode: str) -> tuple[str, str]:
             passcode,
         )
     ]
-    return snapshots[-1]
+    progress, card, _view = snapshots[-1]
+    return progress, card
 
 
 def test_partial_config_api_run_carries_the_demo_names_not_the_users(
