@@ -25,7 +25,12 @@ from receipts.contracts import RunEvent, RunId, RunRequest, RunSummary
 from receipts.fakes import FakeRunService, data
 from receipts.settings import MissingSettingError
 from receipts.ui.app import UI_PATH, build_ui, mount_ui, resolve_service, run_stream
-from receipts.ui.render import render_event_line, render_history
+from receipts.ui.render import (
+    render_event_line,
+    render_history,
+    render_progress,
+    render_progress_notice,
+)
 from receipts.ui.theme import HEADER_HTML
 
 UI_DIR = Path(__file__).resolve().parents[1] / "src" / "receipts" / "ui"
@@ -133,14 +138,18 @@ async def test_run_stream_yields_lines_in_event_order_then_the_battlecard(
         )
     ]
     assert snapshots, "the generator yielded nothing"
-    progress_log, card = snapshots[-1]
+    progress_log, card, view = snapshots[-1]
     lines = [line for line in progress_log.splitlines() if line.strip()]
     expected = [render_event_line(event) for event in sample_events]
     assert lines[-len(expected) :] == expected, "lines are not in event order"
     assert 'aria-label="2 of 3 claims verified"' in card
     assert "Acme Widgets" in card and "Zeta Gadgets" in card
     # the card appears only once the run is done, never before
-    assert all(c == "" for _, c in snapshots[:-1])
+    assert all(c == "" for _, c, _ in snapshots[:-1])
+    # the progress view follows every event and has collapsed by the time the card shows
+    views = [v for _, _, v in snapshots[:-1]]
+    assert views == [render_progress(sample_events[: n + 1]) for n in range(len(sample_events))]
+    assert view == render_progress(sample_events) and 'class="rp rp-done"' in view
     # the request went to the service; the passcode is passed along, never validated here
     assert fake_run_service.requests[fake_run_service.run_id] == RunRequest(
         subject="Acme Widgets", rival="Zeta Gadgets", category="widgets"
@@ -167,6 +176,7 @@ async def test_run_stream_rejects_blank_subject_or_rival(fake_run_service: FakeR
     snapshots = [snap async for snap in run_stream(fake_run_service, "  ", "B", None, "")]
     assert len(snapshots) == 1
     assert "subject and rival" in snapshots[0][0].lower()
+    assert snapshots[0][2] == render_progress_notice(snapshots[0][0])
     assert fake_run_service.requests == {}
 
 
@@ -325,7 +335,7 @@ async def test_gated_run_stream_starts_through_the_gate_with_the_user_and_typed_
     request = RunRequest(subject="Acme Widgets", rival="Zeta Gadgets", category="widgets")
     assert gate.started == [(request, "pw-1", USER)]
     assert 'aria-label="2 of 3 claims verified"' in snapshots[-1][1]
-    assert all(card == "" for _, card in snapshots[:-1])
+    assert all(card == "" for _, card, _ in snapshots[:-1])
 
 
 async def test_gated_run_stream_shows_a_refusal_with_its_count_in_the_progress_box(
@@ -340,7 +350,7 @@ async def test_gated_run_stream_shows_a_refusal_with_its_count_in_the_progress_b
             fake_run_service, gate, _gr_request(), "A", "B", None, ""
         )
     ]
-    assert snapshots == [(LIMIT_REASON, "")]
+    assert snapshots == [(LIMIT_REASON, "", render_progress_notice(LIMIT_REASON))]
     assert fake_run_service.requests == {}, "a refused start must start no run"
 
 
@@ -359,7 +369,8 @@ async def test_gated_run_stream_names_a_missing_setting_and_never_its_value(
             fake_run_service, gate, _gr_request(), "A", "B", None, "pw-1"
         )
     ]
-    assert snapshots == [("KEENABLE_API_KEY is not set", "")]
+    message = "KEENABLE_API_KEY is not set"
+    assert snapshots == [(message, "", render_progress_notice(message))]
     assert gate.started[0][2] is None
     assert fake_run_service.requests == {}
 
@@ -420,7 +431,9 @@ def test_build_ui_with_a_gate_puts_the_account_line_right_after_the_header(
         (
             b
             for b in blocks.blocks.values()
-            if isinstance(b, gr.HTML) and "card" not in (b.elem_classes or [])
+            if isinstance(b, gr.HTML)
+            and "card" not in (b.elem_classes or [])
+            and b.elem_id != ui_app.PROGRESS_VIEW_ID
         ),
         key=lambda b: b._id,
     )
@@ -526,8 +539,8 @@ def test_mount_ui_with_a_gate_starts_runs_through_it(fake_run_service: FakeRunSe
     gate = FakeGate(
         fake_run_service, user=USER, status=SIGNED_IN, refusal=PermissionError(LIMIT_REASON)
     )
-    progress, card = _call(_mounted(gate), "on_start", ["A", "B", "", "pw-1"])
-    assert (progress, card) == (LIMIT_REASON, "")
+    progress, card, view = _call(_mounted(gate), "on_start", ["A", "B", "", "pw-1"])
+    assert (progress, card, view) == (LIMIT_REASON, "", render_progress_notice(LIMIT_REASON))
     assert gate.started == [(RunRequest(subject="A", rival="B"), "pw-1", USER)]
 
 
