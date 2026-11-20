@@ -56,14 +56,15 @@ Snapshot = tuple[str, str]  # (progress log, battlecard HTML)
 NO_CARD = NO_CARD_HTML
 BLANK_INPUT = "Enter a subject and rival to start."
 
-# Inline styles: the theme's CSS is not this file's (PR #49 asserts on it); `receipts-about` is
-# the header's existing pill style, reused for the sign-in link and the sign-out button.
-_ACCOUNT_STYLE = (
-    "display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;"
-    "padding:0 0 8px"
+START_LABEL = "Start run"
+RUNNING_LABEL = "Running…"
+FORM_HEAD = (
+    "New comparison\n\n"
+    "## Who can back up their claims?\n\n"
+    "Name two companies. Receipts reads public pages about both and keeps only the claims "
+    "it can quote back to a source."
 )
-_ACCOUNT_TEXT_STYLE = "color:var(--body-text-color-subdued);font-size:0.875rem"
-_SIGN_OUT_STYLE = "background:transparent;cursor:pointer;font-family:inherit"
+FORM_HINT = "A run takes about 2 minutes."
 
 
 def _request(subject: str, rival: str, category: str | None) -> RunRequest:
@@ -161,8 +162,7 @@ def render_account(status: AccountStatus) -> str:
         text = f"{escape(status.email)} · {count} runs used today (UTC)"
         action = (
             f'<form method="post" action="{SIGN_OUT_PATH}">'
-            f'<button type="submit" class="receipts-about" style="{_SIGN_OUT_STYLE}">'
-            "Sign out</button></form>"
+            '<button type="submit" class="receipts-about">Sign out</button></form>'
         )
     else:
         text = f"{count} signed-out runs used today (UTC)"
@@ -172,8 +172,8 @@ def render_account(status: AccountStatus) -> str:
             else ""
         )
     return (
-        f'<div class="receipts-account" style="{_ACCOUNT_STYLE}">'
-        f'<span style="{_ACCOUNT_TEXT_STYLE}">{text}</span>{action}</div>'
+        '<div class="receipts-account">'
+        f'<span class="receipts-account-text">{text}</span>{action}</div>'
     )
 
 
@@ -224,28 +224,48 @@ def _start_handler(service: RunService, starter: Starter | None, gate: Gate | No
     return _plain_start(service, starter) if gate is None else _gated_start(service, gate)
 
 
+def _busy() -> dict[str, Any]:
+    return gr.update(value=RUNNING_LABEL, interactive=False)
+
+
+def _ready() -> dict[str, Any]:
+    return gr.update(value=START_LABEL, interactive=True)
+
+
+def _run_form() -> tuple[gr.Textbox, gr.Textbox, gr.Textbox, gr.Textbox, gr.Button]:
+    """The inputs and the Start button, laid out as one card (theme.py `FORM_CSS`)."""
+    with gr.Column(elem_classes=["rf"]):
+        gr.Markdown(FORM_HEAD, elem_classes=["rf-head"])
+        with gr.Row(elem_classes=["rf-pair"]):
+            subject = gr.Textbox(label="Subject", placeholder="Your company")
+            gr.Markdown("vs", elem_classes=["rf-vs"])
+            rival = gr.Textbox(label="Rival", placeholder="Their company")
+        with gr.Row(elem_classes=["rf-extra"]):
+            category = gr.Textbox(label="Category (optional)", placeholder="e.g. widgets")
+            passcode = gr.Textbox(label="Passcode", type="password")
+        with gr.Row(elem_classes=["rf-foot"]):
+            gr.Markdown(FORM_HINT, elem_classes=["rf-hint"])
+            start = gr.Button(START_LABEL, variant="primary", elem_id="start", scale=0)
+    return subject, rival, category, passcode, start
+
+
 def _run_panel(
     service: RunService, starter: Starter | None, gate: Gate | None
-) -> tuple[gr.Textbox, Dependency]:
-    with gr.Row():
-        subject = gr.Textbox(label="Subject", placeholder="Your company")
-        rival = gr.Textbox(label="Rival", placeholder="Their company")
-    with gr.Row():
-        category = gr.Textbox(label="Category (optional)", placeholder="e.g. widgets")
-        passcode = gr.Textbox(label="Passcode", type="password")
-    start = gr.Button("Start run", variant="primary")
+) -> tuple[gr.Textbox, gr.Button, Dependency]:
+    subject, rival, category, passcode, start = _run_form()
     progress = gr.Textbox(label="Progress", lines=12, interactive=False, elem_id="progress")
     card = gr.HTML(elem_classes=["card"])
-    started = start.click(
+    busy = start.click(_busy, outputs=[start], queue=False, api_visibility="private")
+    started = busy.then(
         _start_handler(service, starter, gate),
         inputs=[subject, rival, category, passcode],
         outputs=[progress, card],
     )
-    return passcode, started
+    return passcode, start, started
 
 
 def _history_panel(service: RunService, blocks: gr.Blocks, gate: Gate | None) -> None:
-    refresh = gr.Button("Refresh")
+    refresh = gr.Button("Refresh", size="sm", elem_id="refresh")
     table = gr.Dataframe(
         headers=list(HISTORY_HEADERS), type="array", interactive=False, label="Runs, newest first"
     )
@@ -269,7 +289,7 @@ def _history_panel(service: RunService, blocks: gr.Blocks, gate: Gate | None) ->
 
 def _wire_account(
     blocks: gr.Blocks, gate: Gate, account: gr.HTML, passcode: gr.Textbox, started: Dependency
-) -> None:
+) -> Dependency:
     """Fill the account line and the passcode field on page load, and recount after each run
     (a stale count would misstate how many runs are left today)."""
 
@@ -277,7 +297,7 @@ def _wire_account(
         return await account_view(gate, request)
 
     blocks.load(on_account, outputs=[account, passcode], api_name="account")
-    started.then(on_account, outputs=[account, passcode])
+    return started.then(on_account, outputs=[account, passcode])
 
 
 def build_ui(
@@ -290,11 +310,14 @@ def build_ui(
         gr.HTML(HEADER_HTML)
         account = gr.HTML("", elem_id="account") if gate is not None else None
         with gr.Tab("Run"):
-            passcode, started = _run_panel(service, starter, gate)
+            passcode, start, started = _run_panel(service, starter, gate)
         with gr.Tab("History"):
             _history_panel(service, blocks, gate)
+        last = started
         if gate is not None and account is not None:
-            _wire_account(blocks, gate, account, passcode, started)
+            last = _wire_account(blocks, gate, account, passcode, started)
+        # `.then` runs whether the run succeeded or raised, so the button never stays locked.
+        last.then(_ready, outputs=[start], queue=False, api_visibility="private")
     return blocks
 
 

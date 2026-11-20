@@ -174,6 +174,114 @@ THEME = BaseTheme(
     font_mono=(Font("JetBrains Mono"), "ui-monospace", "SFMono-Regular", "Menlo", "monospace"),
 ).set(**_both_modes(_BOTH_MODES), **_ANY_MODE)
 
+FORM_CSS = f"""
+/* The account line, the tabs and the Run form (app.py `_run_form`), in the battlecard's
+   language: one card, a mono eyebrow, a bold heading, quiet labels. */
+/* On wide screens the account line sits on the tab row, right of the tabs: it is lifted above
+   the row so its button stays clickable, and lets clicks through everywhere else. */
+#account {{ position: relative; z-index: 2; margin-bottom: -54px; pointer-events: none; }}
+#account .prose {{
+  min-height: 38px; display: flex; align-items: center; justify-content: flex-end;
+}}
+.receipts-account {{
+  display: inline-flex; align-items: center; justify-content: flex-end; gap: 12px;
+  flex-wrap: wrap; pointer-events: auto;
+}}
+.receipts-account form {{ margin: 0; }}
+.receipts-account-text {{
+  display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono);
+  font-size: 0.75rem; letter-spacing: 0.02em; color: {TEXT_SECONDARY};
+}}
+.receipts-account-text::before {{
+  content: ""; flex: none; width: 6px; height: 6px; border-radius: 9999px;
+  background: {TEXT_SECONDARY};
+}}
+button.receipts-about {{
+  background: transparent; cursor: pointer; font-family: inherit; line-height: 1.25rem;
+}}
+.tabs > .tab-wrapper {{ height: auto; padding-bottom: 0; margin-bottom: 20px; }}
+.tab-container:not(.visually-hidden) {{
+  width: auto; height: auto; gap: 4px; padding: 4px; border: 1px solid {BORDER};
+  border-radius: 9999px; background: {SURFACE};
+}}
+.tab-container::after, .tab-container button.selected::after {{ display: none; }}
+.tab-container button {{
+  height: auto !important; padding: 6px 18px !important; border-radius: 9999px;
+  color: {TEXT_SECONDARY}; font-size: 0.875rem; font-weight: 500;
+  transition: color 0.2s ease, background-color 0.2s ease;
+}}
+.tab-container button.selected {{ background: {RAISED}; color: {TEXT}; }}
+.tab-container button:hover:not(.selected) {{ background: transparent !important; }}
+.rf {{
+  background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 12px;
+  padding: 28px; gap: 22px;
+}}
+.rf .block, .rf .form {{
+  background: transparent !important; border: 0 !important; padding: 0 !important;
+  box-shadow: none !important;
+}}
+.rf .form {{ gap: 16px; overflow: visible; }}
+.rf .row {{ gap: 16px; }}
+.rf-head .prose {{ display: flex; flex-direction: column; gap: 10px; }}
+.rf-head :is(p, h2) {{ margin: 0 !important; }}
+.rf-head p:first-of-type {{
+  font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.04em;
+  text-transform: uppercase; color: {TEXT_SECONDARY};
+}}
+.rf-head h2 {{ font-size: 1.5rem !important; line-height: 1.25; font-weight: 600; }}
+.rf-head p:last-of-type {{
+  max-width: 560px; color: {TEXT_SECONDARY}; font-size: 0.875rem; line-height: 1.4rem;
+}}
+.rf label > span:first-child {{
+  margin-bottom: 8px; color: {TEXT_SECONDARY}; font-size: 0.8125rem; font-weight: 500;
+}}
+.rf :is(textarea, input) {{ padding: 10px 14px !important; font-size: 0.9375rem !important; }}
+.rf-pair {{ flex-wrap: nowrap !important; align-items: flex-end; }}
+.rf-pair > .form {{ flex: 1 1 0 !important; }}
+.rf-vs {{
+  flex: none !important; width: auto !important; min-width: 0 !important;
+  align-self: flex-end;
+}}
+.rf-vs p {{
+  margin: 0 !important; padding-bottom: 11px; font-family: var(--font-mono);
+  font-size: 0.8125rem; color: {TEXT_SECONDARY};
+}}
+.rf-extra {{ padding-top: 20px; border-top: 1px solid {BORDER}; }}
+.rf-extra label > span:first-child {{ font-size: 0.75rem; }}
+.rf-extra :is(textarea, input) {{ font-size: 0.875rem !important; }}
+.rf-foot {{ align-items: center; justify-content: space-between; flex-wrap: nowrap; }}
+.rf-hint {{ min-width: 0 !important; }}
+.rf-hint p {{ margin: 0 !important; color: {TEXT_SECONDARY}; font-size: 0.8125rem; }}
+#start {{
+  flex: none; min-width: 148px; height: 40px; padding: 0 22px; border-radius: {RADIUS};
+  font-size: 0.875rem;
+}}
+#refresh {{ align-self: flex-end; flex: none; width: auto; min-width: 0; padding: 4px 14px; }}
+#start:disabled {{
+  background: {RAISED}; border-color: {BORDER}; color: {TEXT_SECONDARY}; cursor: progress;
+  opacity: 1;
+}}
+#start:disabled::before {{
+  content: ""; width: 6px; height: 6px; margin-right: 10px; border-radius: 9999px;
+  background: {TEXT_SECONDARY}; animation: rf-pulse 1.2s ease-in-out infinite;
+}}
+@keyframes rf-pulse {{ 50% {{ opacity: 0.3; }} }}
+@media (max-width: 640px) {{
+  #account {{ margin-bottom: 0; }}
+  #account .prose {{ min-height: 0; justify-content: flex-start; }}
+  .receipts-account {{ justify-content: space-between; width: 100%; }}
+  .receipts-account-text {{ font-size: 0.6875rem; }}
+  .rf {{ padding: 20px; }}
+  .rf-head h2 {{ font-size: 1.25rem !important; }}
+  .rf-pair, .rf-extra {{ flex-direction: column; align-items: stretch; }}
+  .rf-pair {{ gap: 12px; }}
+  .rf-vs {{ display: none; }}
+  .rf-foot {{ flex-direction: column-reverse; align-items: stretch; gap: 12px; }}
+  #start {{ width: 100% !important; }}
+  .rf-hint p {{ text-align: center; }}
+}}
+"""
+
 BATTLECARD_CSS = f"""
 /* The battlecard (render.py), shared by the app and the public share page (share.py). */
 .bc {{ display: flex; flex-direction: column; gap: 28px; color: {TEXT}; }}
@@ -280,6 +388,7 @@ gradio-app {{
   transition: color 0.2s ease, border-color 0.2s ease;
 }}
 .receipts-about:hover {{ color: {TEXT} !important; border-color: {BORDER_FOCUS}; }}
+{FORM_CSS}
 #progress textarea {{
   font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; color: {TEXT_SECONDARY};
 }}
