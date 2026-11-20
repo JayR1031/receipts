@@ -29,11 +29,14 @@ What Mellea cannot do:
   unverified there, exactly as without Mellea.
 
 Mellea is imported inside `MelleaClaimRepairer.__call__`, never at module import, so importing
-the app or calling `create_app()` loads neither Mellea nor LiteLLM.
+the app or calling `create_app()` loads neither Mellea nor LiteLLM. That first import and the
+backend build run in a worker thread: on Render's free tier they take tens of seconds, longer
+than the 5-second health check allows the event loop to stall.
 """
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import json
 from collections.abc import Callable, Mapping, Sequence
@@ -171,6 +174,8 @@ class MelleaClaimRepairer:
         self._max_repairs = max_repairs
 
     async def __call__(self, request: RepairRequest) -> Claim | None:
+        await asyncio.to_thread(_import_mellea)
+        backend = await asyncio.to_thread(self._backend)
         from mellea.core import Requirement
         from mellea.stdlib.context import SimpleContext
         from mellea.stdlib.sampling import RepairTemplateStrategy
@@ -178,7 +183,7 @@ class MelleaClaimRepairer:
         result = await _ainstruct()(
             repair_prompt(request),
             SimpleContext(),
-            self._backend(),
+            backend,
             requirements=[Requirement(RECEIPT_REQUIREMENT, validation_fn=_validator(request))],
             strategy=RepairTemplateStrategy(loop_budget=self._max_repairs),
             grounding_context={**request.evidence},
@@ -204,6 +209,19 @@ class _AInstruct(Protocol):
         grounding_context: dict[str, str],
         return_sampling_results: Literal[True],
     ) -> SamplingResult[str]: ...
+
+
+_MELLEA_MODULES = (
+    "mellea.core",
+    "mellea.stdlib.context",
+    "mellea.stdlib.sampling",
+    "mellea.stdlib.functional",
+)
+
+
+def _import_mellea() -> None:
+    for name in _MELLEA_MODULES:
+        importlib.import_module(name)
 
 
 def _ainstruct() -> _AInstruct:

@@ -25,6 +25,11 @@ With no factory (the default) nothing changes.
 Events are yielded after the agent finishes, in tool-call order: the tools run synchronously
 inside the agent loop, so recording into a `ToolLog` and replaying is simpler than threading an
 event queue through LangGraph. The Coordinator interleaves domains, so the stream still moves.
+
+Blocking work runs in a worker thread (`asyncio.to_thread`): building the agent, whose first call
+imports LangChain's agent and Anthropic modules, and every Verifier pass. On Render's free tier
+those take tens of seconds, and an event loop blocked for more than 5 seconds fails the health
+check, so Render restarts the instance and the run is lost.
 """
 
 from __future__ import annotations
@@ -354,9 +359,9 @@ class SpecialistRunner:
         self._repair_factory = repair_factory
         self._monotonic = monotonic
 
-    async def _invoke(self, pack: DomainPack, request: RunRequest, log: ToolLog) -> str:
+    def _agent(self, pack: DomainPack, request: RunRequest, log: ToolLog) -> _Agent:
         tools = make_tools(self._search, self._fetch, log=log)
-        agent = build_agent(
+        return build_agent(
             self._model_factory(pack),
             tools,
             system_prompt=system_prompt(pack, request),
@@ -365,6 +370,9 @@ class SpecialistRunner:
                 ToolCallLimitMiddleware(tool_name="keenable_fetch", run_limit=pack.max_fetches),
             ],
         )
+
+    async def _invoke(self, pack: DomainPack, request: RunRequest, log: ToolLog) -> str:
+        agent = await asyncio.to_thread(self._agent, pack, request, log)
         result = await asyncio.wait_for(
             agent.ainvoke({"messages": [HumanMessage(user_prompt(pack, request))]}),
             timeout=pack.timeout_s,
@@ -411,7 +419,7 @@ class SpecialistRunner:
         if self._repair_factory is None:
             return list(claims)
         pages, rows = log.pages, log.search_rows
-        notes = [self._verify(claim, pages, rows) for claim in claims]
+        notes = await asyncio.to_thread(lambda: [self._verify(c, pages, rows) for c in claims])
         failing = [i for i, checked in enumerate(notes) if not checked.verified]
         remaining = deadline - self._monotonic()
         if failing and remaining <= 0:
@@ -478,5 +486,5 @@ class SpecialistRunner:
             yield ErrorEvent(run_id=run_id, ts=self._clock(), domain=pack.id, message=str(exc))
             return
         claims = await self._repair_failing(pack, log, claims, deadline)
-        for event in self._claim_events(run_id, pack, log, claims):
+        for event in await asyncio.to_thread(self._claim_events, run_id, pack, log, claims):
             yield event
