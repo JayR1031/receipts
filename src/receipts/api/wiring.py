@@ -47,10 +47,11 @@ settings per call, never in `create_app()`.
   days), or no live repo to read it from, means signed out: the passcode and the signed-out cap
   apply and the run is never claimed (on Postgres the claim would fail on the foreign key after
   the run had started).
-- `history`: that user's runs, or the runs with no user; `account`: the email, today's count and
-  the limit that applies. On the demo (local, or half-configured) nothing is stored, so History
-  is the demo's list and the account line is signed out, `0 of SIGNED_OUT_RUNS_PER_DAY`, with
-  sign-in hidden.
+- `history`: signed out, the runs with no user (passcode, Ask Receipts, seed); signed in, that
+  person's runs plus those same shared runs, newest first. Another person's claimed runs never
+  appear. `account`: the email, today's count and the limit that applies. On the demo (local, or
+  half-configured) nothing is stored, so History is the demo's list and the account line is
+  signed out, `0 of SIGNED_OUT_RUNS_PER_DAY`, with sign-in hidden.
 - `POST /api/runs` and `GET /api/runs` use the same rules (`runs_today`, `history_for`).
 
 Pools: when the live repo is built first, `app.state.user_repo` becomes a `SqlUserRepo` on the
@@ -375,13 +376,22 @@ async def runs_today(service: RunService, user_id: str | None, now: datetime) ->
     return await _count_today(await live_repo_of(service), user_id, now)
 
 
+def _newest_first(rows: list[RunSummary]) -> list[RunSummary]:
+    return sorted(rows, key=lambda summary: summary.started_at, reverse=True)
+
+
 async def history_for(service: RunService, user: SessionUser | None) -> list[RunSummary]:
-    """History: the user's runs, or the runs with no user (newest first); on the demo or any
-    service without a live repo, `service.list()` as before issue #41."""
+    """History, newest first. Signed out: runs with no user (passcode, Ask Receipts, seed).
+    Signed in: that person's runs plus those same shared runs. Another person's claimed runs
+    never appear. On the demo or any service without a live repo, `service.list()`."""
     repo = await live_repo_of(service)
     if repo is None:
         return await service.list()
-    return await repo.list_runs_for(user.user_id if user is not None else None)
+    shared = await repo.list_runs_for(None)
+    if user is None:
+        return shared
+    own = await repo.list_runs_for(user.user_id)
+    return _newest_first([*own, *shared])
 
 
 def _serves_demo(service: RunService) -> bool:

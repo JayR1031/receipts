@@ -456,6 +456,16 @@ def test_run_form_copy_names_the_comparison_and_the_start_states() -> None:
     assert ui_app.FORM_HINT == "A run takes about 2 minutes."
 
 
+def test_history_panel_notes_shared_passcode_and_voice_runs(
+    fake_run_service: FakeRunService,
+) -> None:
+    blocks = build_ui(fake_run_service)
+    markdowns = [b.value for b in blocks.blocks.values() if isinstance(b, gr.Markdown)]
+    assert ui_app.HISTORY_NOTE in markdowns
+    assert "Ask Receipts" in ui_app.HISTORY_NOTE
+    assert "does not stream into another browser tab" in ui_app.HISTORY_NOTE
+
+
 def test_build_ui_lays_out_the_run_form_as_one_card(fake_run_service: FakeRunService) -> None:
     blocks = build_ui(fake_run_service)
     columns = [b for b in blocks.blocks.values() if isinstance(b, gr.Column)]

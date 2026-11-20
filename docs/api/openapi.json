@@ -411,7 +411,7 @@
   "paths": {
     "/api/runs": {
       "get": {
-        "description": "History, newest first: with a valid session cookie, the signed-in user's runs; without\none, the runs that belong to no user (started with the passcode).",
+        "description": "History, newest first: without a valid session cookie, the runs that belong to no user\n(passcode, Ask Receipts, seed); with one, that person's runs plus those same shared runs.",
         "operationId": "list_runs_api_runs_get",
         "responses": {
           "200": {

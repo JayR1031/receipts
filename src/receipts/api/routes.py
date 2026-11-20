@@ -9,9 +9,10 @@ Issue #41 (ADR-0008), with the same rules as the UI's `Gate` (`receipts.api.wiri
   429 once today's (UTC) runs with no user have reached `SIGNED_OUT_RUNS_PER_DAY`; the detail is
   the start rule's reason, with its count and cap. An API run is a signed-out run: never claimed,
   even when the request carries a session cookie.
-- `GET /api/runs` lists the signed-in user's runs when the request carries a valid session
-  cookie, else the runs that belong to no user; on the demo, or a service with no live repo,
-  `service.list()` as before.
+- `GET /api/runs` lists the runs that belong to no user when there is no valid session cookie
+  (passcode, Ask Receipts, seed). With a valid session cookie, that person's runs plus those
+  same shared runs; another person's claimed runs never appear. On the demo, or a service with
+  no live repo, `service.list()` as before.
 - `GET /api/runs/{run_id}` is unchanged: anyone with the id can read the card.
 """
 
@@ -107,8 +108,8 @@ async def start_run(
 
 @router.get("/runs", response_model=list[RunSummary])
 async def list_runs(request: Request, service: ServiceDep) -> list[RunSummary]:
-    """History, newest first: with a valid session cookie, the signed-in user's runs; without
-    one, the runs that belong to no user (started with the passcode)."""
+    """History, newest first: without a valid session cookie, the runs that belong to no user
+    (passcode, Ask Receipts, seed); with one, that person's runs plus those same shared runs."""
     user = current_user(request, get_settings(), get_clock(request))
     summaries = await history_for(service, user)
     return sorted(summaries, key=lambda s: s.started_at, reverse=True)

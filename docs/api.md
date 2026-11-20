@@ -22,7 +22,7 @@ The same routes as `docs/api/openapi.json`. Sign-in is optional (issue #41, ADR-
 |---|---|
 | `GET /healthz` | 200 `{"status", "sha", "version"}`; header `X-Receipts-Mode: live` or `demo`. |
 | `POST /api/runs` | 202 `{"run_id"}`. Checked in this order: 401 `a valid X-Demo-Passcode is required`; 429 once today's (UTC) runs with no user have reached `SIGNED_OUT_RUNS_PER_DAY` (default 20), detail `20 of 20 signed-out runs used today (UTC); the limit resets at 00:00 UTC`; 503 `KEENABLE_API_KEY is not set`. 422 for a bad body. Every API run is a signed-out run: it is never linked to a user, even when the request carries a session cookie. |
-| `GET /api/runs` | 200, a list of `RunSummary`, newest first. With a valid session cookie, that user's runs; without one, the runs that belong to no user. On the demo, the demo's list. |
+| `GET /api/runs` | 200, a list of `RunSummary`, newest first. Without a valid session cookie, the runs that belong to no user (passcode, Ask Receipts, seed). With one, that person's runs plus those same shared runs; another person's claimed runs never appear. On the demo, the demo's list. |
 | `GET /api/runs/{run_id}` | 200 `Battlecard`, or 404. Anyone with the id can read it, signed in or not. |
 | `GET /share/{run_id}` | 200 HTML: the same battlecard as a read-only page with Open Graph and Twitter card tags (title `<Subject> vs <Rival>: N of M claims verified`, image `/share/card.png`) and `robots: noindex`, so a pasted link previews in Slack, LinkedIn or X. 404 HTML page for an unknown or unfinished run. Not in the OpenAPI document. |
 | `GET /share/card.png` | 200 `image/png`, the 1200×630 preview image, cached for a day. |
