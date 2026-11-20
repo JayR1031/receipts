@@ -177,15 +177,17 @@ THEME = BaseTheme(
 FORM_CSS = f"""
 /* The account line, the tabs and the Run form (app.py `_run_form`), in the battlecard's
    language: one card, a mono eyebrow, a bold heading, quiet labels. */
-/* On wide screens the account line sits on the tab row, right of the tabs: it is lifted above
-   the row so its button stays clickable, and lets clicks through everywhere else. */
-#account {{ position: relative; z-index: 2; margin-bottom: -54px; pointer-events: none; }}
+/* On wide screens the account line is taken out of flow and sat on the tab row, right of
+   the tabs. Clicks pass through the empty box; the link and Sign out keep theirs. */
+#account {{ position: relative; z-index: 2; height: 0; margin: 0; overflow: visible;
+  pointer-events: none; }}
 #account .prose {{
-  min-height: 38px; display: flex; align-items: center; justify-content: flex-end;
+  position: absolute; right: 0; top: 0; height: 43px;
+  display: flex; align-items: center; justify-content: flex-end;
 }}
 .receipts-account {{
   display: inline-flex; align-items: center; justify-content: flex-end; gap: 12px;
-  flex-wrap: wrap; pointer-events: auto;
+  flex-wrap: wrap; pointer-events: auto; min-height: 43px;
 }}
 .receipts-account form {{ margin: 0; }}
 .receipts-account-text {{
@@ -204,7 +206,7 @@ button.receipts-about {{
   width: auto; height: auto; gap: 4px; padding: 4px; border: 1px solid {BORDER};
   border-radius: 9999px; background: {SURFACE};
 }}
-.tab-container::after, .tab-container button.selected::after {{ display: none; }}
+.tab-container::after, .tab-container button::after {{ display: none !important; }}
 .tab-container button {{
   height: auto !important; padding: 6px 18px !important; border-radius: 9999px;
   color: {TEXT_SECONDARY}; font-size: 0.875rem; font-weight: 500;
@@ -239,7 +241,8 @@ button.receipts-about {{
 .rf-pair {{ flex-wrap: nowrap !important; align-items: flex-end; }}
 .rf-pair > .form {{ flex: 1 1 0 !important; }}
 .rf-vs {{
-  flex: none !important; width: auto !important; min-width: 0 !important;
+  flex: none !important; width: auto !important; min-width: 1.75rem !important;
+  min-height: 1.5rem !important; height: auto !important; overflow: visible !important;
   align-self: flex-end;
 }}
 .rf-vs p {{
@@ -267,14 +270,16 @@ button.receipts-about {{
 }}
 @keyframes rf-pulse {{ 50% {{ opacity: 0.3; }} }}
 @media (max-width: 640px) {{
-  #account {{ margin-bottom: 0; }}
-  #account .prose {{ min-height: 0; justify-content: flex-start; }}
-  .receipts-account {{ justify-content: space-between; width: 100%; }}
+  #account {{ height: auto; overflow: visible; }}
+  #account .prose {{
+    position: static; height: auto; min-height: 0; justify-content: flex-start;
+  }}
+  .receipts-account {{ justify-content: space-between; width: 100%; min-height: 0; }}
   .receipts-account-text {{ font-size: 0.6875rem; }}
   .rf {{ padding: 20px; }}
   .rf-head h2 {{ font-size: 1.25rem !important; }}
   .rf-pair, .rf-extra {{ flex-direction: column; align-items: stretch; }}
-  .rf-pair {{ gap: 12px; }}
+  .rf .row.rf-pair {{ gap: 6px; }}
   .rf-vs {{ display: none; }}
   .rf-foot {{ flex-direction: column-reverse; align-items: stretch; gap: 12px; }}
   #start {{ width: 100% !important; }}
