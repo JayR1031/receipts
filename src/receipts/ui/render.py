@@ -1,15 +1,21 @@
 # pyright: basic
-"""Pure rendering for the UI: contracts in, Markdown or table rows out.
+"""Pure rendering for the UI: contracts in, HTML, text or table rows out.
 
 Nothing here touches Gradio, the clock or the network, so every helper is tested without a
 browser. `app.py` only glues these onto components.
+
+The battlecard is HTML shown in a `gr.HTML`, which does not sanitize. Claim text, quotes, notes,
+company names and URLs come from the web or from visitors, so every one goes through
+`html.escape`, and a receipt URL becomes a link only when its scheme is http or https.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from html import escape
 from itertools import groupby
+from urllib.parse import urlsplit
 
 from receipts.contracts import (
     Battlecard,
@@ -80,40 +86,132 @@ def render_event_line(event: RunEvent) -> str:
     return f"{_clock(event.ts)} [{event.kind}]{where} {_describe(event)}"
 
 
-def _render_receipt(receipt: Receipt) -> str:
-    if isinstance(receipt, QuoteReceipt):
-        return f'quote: "{receipt.quote}" — <{receipt.url}>'
-    return f"search {receipt.query!r} #{receipt.rank} — <{receipt.url}>"
+DOMAIN_TITLES: dict[str, str] = {
+    "pricing": "Pricing",
+    "positioning_seo": "Positioning & SEO",
+    "news_social": "News & social",
+    "product": "Product",
+}
+METHOD_LABELS: dict[str, str] = {
+    "quote_exact": "exact quote on the page",
+    "quote_fuzzy": "near-exact quote on the page",
+    "search_log": "matched the search log",
+}
+NO_CARD_HTML = (
+    '<div class="bc"><p class="bc-empty">Run finished but no battlecard was stored.</p></div>'
+)
 
 
-def _render_claim(claim: Claim) -> str:
-    marker = (
-        '<span class="status-verified">[verified]</span>'
-        if claim.verified
-        else '<span class="status-dropped">[unverified]</span>'
+def _duration(started: datetime, finished: datetime) -> str:
+    seconds = max(0, int((finished - started).total_seconds()))
+    minutes, seconds = divmod(seconds, 60)
+    return f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
+
+
+def _link(url: str) -> str:
+    """The URL as a short label (host and path); a link only for http and https."""
+    parts = urlsplit(url)
+    label = escape((parts.netloc + parts.path).removeprefix("www.").rstrip("/") or url)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        return f'<span class="bc-url">{label}</span>'
+    return (
+        f'<a class="bc-url" href="{escape(url, quote=True)}" target="_blank" '
+        f'rel="noopener noreferrer nofollow">{label}</a>'
     )
-    note = f" ({claim.verify_note})" if claim.verify_note else ""
-    return f"- {marker} **{claim.about}**: {claim.text}{note}  \n  {_render_receipt(claim.receipt)}"
+
+
+def _receipt_html(receipt: Receipt, method: str | None) -> str:
+    label = METHOD_LABELS.get(method, method) if method else None
+    how = f' · <span class="bc-method">{escape(label)}</span>' if label else ""
+    if isinstance(receipt, QuoteReceipt):
+        return (
+            f'<blockquote class="bc-quote">“{escape(receipt.quote)}”</blockquote>'
+            f'<p class="bc-source">{_link(receipt.url)}{how}</p>'
+        )
+    return (
+        f'<p class="bc-source"><span class="bc-search">search “{escape(receipt.query)}”, '
+        f"result #{receipt.rank}</span> · {_link(receipt.url)}{how}</p>"
+    )
+
+
+def _claim_html(claim: Claim, card: Battlecard) -> str:
+    company = card.subject if claim.about == "subject" else card.rival
+    if claim.verified:
+        mark = '<span class="bc-mark status-verified" aria-label="verified">✓</span>'
+        why = ""
+    else:
+        mark = '<span class="bc-mark status-dropped" aria-label="not verified">✕</span>'
+        note = claim.verify_note or "No receipt matched this run's log."
+        why = (
+            '<p class="bc-why"><span class="status-dropped">Why it was dropped:</span> '
+            f"{escape(note)}</p>"
+        )
+    state = "verified" if claim.verified else "dropped"
+    return (
+        f'<article class="bc-claim bc-claim-{state}">'
+        f'<div class="bc-claim-row">{mark}<p class="bc-claim-text">{escape(claim.text)}</p>'
+        f'<span class="bc-about">{escape(company)}</span></div>'
+        f"{why}{_receipt_html(claim.receipt, claim.verify_method)}</article>"
+    )
+
+
+def _domain_html(domain: str, claims: list[Claim], card: Battlecard) -> str:
+    kept = [c for c in claims if c.verified]
+    dropped = [c for c in claims if not c.verified]
+    title = escape(DOMAIN_TITLES.get(domain, domain.replace("_", " ").capitalize()))
+    parts = [
+        '<section class="bc-domain">',
+        f'<h3 class="bc-domain-title">{title}'
+        f'<span class="bc-domain-count">{len(kept)} of {len(claims)} verified</span></h3>',
+        *(_claim_html(c, card) for c in kept),
+    ]
+    if dropped:
+        noun = "claim" if len(dropped) == 1 else "claims"
+        parts += [
+            '<details class="bc-dropped">',
+            f"<summary>{len(dropped)} dropped {noun}, and why</summary>",
+            *(_claim_html(c, card) for c in dropped),
+            "</details>",
+        ]
+    parts.append("</section>")
+    return "".join(parts)
+
+
+def _score_html(card: Battlecard) -> str:
+    verified, total = card.verified_count, card.total_count
+    share = 100 * verified / total if total else 0
+    summary = f"{verified} of {total} claims verified"
+    return (
+        '<div class="bc-score">'
+        f'<span class="bc-score-num">{verified}<span class="bc-score-of"> / {total}</span></span>'
+        '<span class="bc-score-label">claims verified</span></div>'
+        f'<div class="bc-meter" role="img" aria-label="{summary}">'
+        f'<span class="bc-meter-fill" style="width: {share:.1f}%"></span></div>'
+    )
 
 
 def render_battlecard(card: Battlecard) -> str:
-    """Markdown: the verified count, then one row per claim grouped by domain."""
-    head = [
-        f"# {card.subject} vs {card.rival}",
-        f"**{card.verified_count} of {card.total_count} verified**"
-        f" · started {_ts(card.started_at)} · finished {_ts(card.finished_at)}",
-        "",
-    ]
+    """HTML: a score header, then each domain's verified claims, with its dropped ones folded
+    underneath, each showing why it was dropped."""
+    head = (
+        '<header class="bc-head">'
+        f'<p class="bc-eyebrow">Battlecard · {escape(str(card.run_id))}</p>'
+        f'<h2 class="bc-title">{escape(card.subject)} <span class="bc-vs">vs</span> '
+        f"{escape(card.rival)}</h2>"
+        f"{_score_html(card)}"
+        f'<p class="bc-meta">Started {_ts(card.started_at)} · '
+        f"took {_duration(card.started_at, card.finished_at)}</p></header>"
+    )
     if not card.claims:
-        return "\n".join([*head, "_No claims survived verification._"])
-    body: list[str] = []
-    for domain, claims in groupby(
-        sorted(card.claims, key=lambda c: c.domain), key=lambda c: c.domain
-    ):
-        body.append(f"## {domain}")
-        body.extend(_render_claim(claim) for claim in claims)
-        body.append("")
-    return "\n".join(head + body).rstrip() + "\n"
+        return (
+            f'<div class="bc">{head}<p class="bc-empty">No claims survived verification.</p></div>'
+        )
+    order = list(DOMAIN_TITLES)
+    domains = groupby(
+        sorted(card.claims, key=lambda c: (order.index(c.domain), c.domain)), key=lambda c: c.domain
+    )
+    body = "".join(_domain_html(domain, list(claims), card) for domain, claims in domains)
+    return f'<div class="bc">{head}{body}</div>'
 
 
 def render_history(rows: Sequence[RunSummary]) -> list[list[str]]:

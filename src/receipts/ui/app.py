@@ -38,6 +38,7 @@ from receipts.contracts import DoneEvent, RunId, RunRequest, RunService, RunSumm
 from receipts.ui.demo import demo_service
 from receipts.ui.render import (
     HISTORY_HEADERS,
+    NO_CARD_HTML,
     render_battlecard,
     render_event_line,
     render_history,
@@ -50,9 +51,9 @@ SIGN_OUT_PATH = "/auth/logout"
 
 # `(request, passcode) -> run_id`. W2 decides whether this goes in-process or over HTTP.
 Starter = Callable[[RunRequest, str], Awaitable[RunId]]
-Snapshot = tuple[str, str]  # (progress log, battlecard Markdown)
+Snapshot = tuple[str, str]  # (progress log, battlecard HTML)
 
-NO_CARD = "_Run finished but no battlecard was stored._"
+NO_CARD = NO_CARD_HTML
 BLANK_INPUT = "Enter a subject and rival to start."
 
 # Inline styles: the theme's CSS is not this file's (PR #49 asserts on it); `receipts-about` is
@@ -95,7 +96,7 @@ async def run_stream(
     *,
     starter: Starter | None = None,
 ) -> AsyncIterator[Snapshot]:
-    """Yield `(progress_log, battlecard_md)` snapshots: one per event, then the card once done."""
+    """Yield `(progress_log, battlecard_html)` snapshots: one per event, then the card once done."""
     if _blank(subject, rival):
         yield (BLANK_INPUT, "")
         return
@@ -234,7 +235,7 @@ def _run_panel(
         passcode = gr.Textbox(label="Passcode", type="password")
     start = gr.Button("Start run", variant="primary")
     progress = gr.Textbox(label="Progress", lines=12, interactive=False, elem_id="progress")
-    card = gr.Markdown(elem_classes=["card"])
+    card = gr.HTML(elem_classes=["card"])
     started = start.click(
         _start_handler(service, starter, gate),
         inputs=[subject, rival, category, passcode],
@@ -249,7 +250,7 @@ def _history_panel(service: RunService, blocks: gr.Blocks, gate: Gate | None) ->
         headers=list(HISTORY_HEADERS), type="array", interactive=False, label="Runs, newest first"
     )
     run_ids = gr.State([])
-    card = gr.Markdown(elem_classes=["card"])
+    card = gr.HTML(elem_classes=["card"])
 
     async def load(request: gr.Request | None) -> tuple[list[list[str]], list[str]]:
         return await history_view(service, gate, request)

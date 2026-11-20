@@ -137,7 +137,7 @@ async def test_run_stream_yields_lines_in_event_order_then_the_battlecard(
     lines = [line for line in progress_log.splitlines() if line.strip()]
     expected = [render_event_line(event) for event in sample_events]
     assert lines[-len(expected) :] == expected, "lines are not in event order"
-    assert "**2 of 3 verified**" in card
+    assert 'aria-label="2 of 3 claims verified"' in card
     assert "Acme Widgets" in card and "Zeta Gadgets" in card
     # the card appears only once the run is done, never before
     assert all(c == "" for _, c in snapshots[:-1])
@@ -160,7 +160,7 @@ async def test_run_stream_hands_the_passcode_to_the_injected_starter(
         snap async for snap in run_stream(fake_run_service, "A", "B", "", "pw-123", starter=starter)
     ]
     assert seen == [(RunRequest(subject="A", rival="B", category=None), "pw-123")]
-    assert "verified**" in snapshots[-1][1]
+    assert "claims verified" in snapshots[-1][1]
 
 
 async def test_run_stream_rejects_blank_subject_or_rival(fake_run_service: FakeRunService) -> None:
@@ -321,7 +321,7 @@ async def test_gated_run_stream_starts_through_the_gate_with_the_user_and_typed_
     ]
     request = RunRequest(subject="Acme Widgets", rival="Zeta Gadgets", category="widgets")
     assert gate.started == [(request, "pw-1", USER)]
-    assert "**2 of 3 verified**" in snapshots[-1][1]
+    assert 'aria-label="2 of 3 claims verified"' in snapshots[-1][1]
     assert all(card == "" for _, card in snapshots[:-1])
 
 
@@ -414,7 +414,12 @@ def test_build_ui_with_a_gate_puts_the_account_line_right_after_the_header(
     gate = FakeGate(fake_run_service, user=None, status=SIGNED_OUT)
     blocks = build_ui(fake_run_service, gate=gate)
     htmls = sorted(
-        (b for b in blocks.blocks.values() if isinstance(b, gr.HTML)), key=lambda b: b._id
+        (
+            b
+            for b in blocks.blocks.values()
+            if isinstance(b, gr.HTML) and "card" not in (b.elem_classes or [])
+        ),
+        key=lambda b: b._id,
     )
     assert len(htmls) == 2
     assert htmls[0].value == HEADER_HTML
