@@ -34,7 +34,7 @@ from gradio.events import Dependency
 
 from receipts.auth.gate import Gate
 from receipts.auth.models import AccountStatus, SessionUser
-from receipts.contracts import DoneEvent, RunId, RunRequest, RunService, RunSummary
+from receipts.contracts import DoneEvent, RunEvent, RunId, RunRequest, RunService, RunSummary
 from receipts.ui.demo import demo_service
 from receipts.ui.render import (
     HISTORY_HEADERS,
@@ -42,6 +42,8 @@ from receipts.ui.render import (
     render_battlecard,
     render_event_line,
     render_history,
+    render_progress,
+    render_progress_notice,
 )
 from receipts.ui.theme import CSS, HEADER_HTML, THEME
 
@@ -51,8 +53,9 @@ SIGN_OUT_PATH = "/auth/logout"
 
 # `(request, passcode) -> run_id`. W2 decides whether this goes in-process or over HTTP.
 Starter = Callable[[RunRequest, str], Awaitable[RunId]]
-Snapshot = tuple[str, str]  # (progress log, battlecard HTML)
+Snapshot = tuple[str, str, str]  # (event log, battlecard HTML, progress view HTML)
 
+PROGRESS_VIEW_ID = "run-view"  # theme.py styles the view by this id
 NO_CARD = NO_CARD_HTML
 BLANK_INPUT = "Enter a subject and rival to start."
 
@@ -76,16 +79,23 @@ def _blank(subject: str, rival: str) -> bool:
     return not subject.strip() or not rival.strip()
 
 
+def _notice(message: str) -> Snapshot:
+    return (message, "", render_progress_notice(message))
+
+
 async def _follow(service: RunService, run_id: RunId) -> AsyncIterator[Snapshot]:
     """One snapshot per event, then the card once the run is done."""
+    events: list[RunEvent] = []
     lines: list[str] = []
     async for event in service.events(run_id):
+        events.append(event)
         lines.append(render_event_line(event))
-        yield ("\n".join(lines), "")
+        yield ("\n".join(lines), "", render_progress(events))
         if isinstance(event, DoneEvent):
             break
     card = await service.get(run_id)
-    yield ("\n".join(lines), render_battlecard(card, share=True) if card else NO_CARD)
+    card_html = render_battlecard(card, share=True) if card else NO_CARD
+    yield ("\n".join(lines), card_html, render_progress(events))
 
 
 async def run_stream(
@@ -97,9 +107,10 @@ async def run_stream(
     *,
     starter: Starter | None = None,
 ) -> AsyncIterator[Snapshot]:
-    """Yield `(progress_log, battlecard_html)` snapshots: one per event, then the card once done."""
+    """Yield `(event_log, battlecard_html, progress_html)` snapshots: one per event, then the card
+    once done."""
     if _blank(subject, rival):
-        yield (BLANK_INPUT, "")
+        yield _notice(BLANK_INPUT)
         return
     request = _request(subject, rival, category)
     run_id = await (starter(request, passcode) if starter else service.start(request))
@@ -138,9 +149,9 @@ async def gated_run_stream(
     passcode: str,
 ) -> AsyncIterator[Snapshot]:
     """`run_stream` when a `Gate` is wired: `gate.start` applies the start rule for this visitor,
-    and a refusal is one progress line, never a traceback."""
+    and a refusal is one notice in the progress view, never a traceback."""
     if _blank(subject, rival):
-        yield (BLANK_INPUT, "")
+        yield _notice(BLANK_INPUT)
         return
     run_request = _request(subject, rival, category)
     try:
@@ -149,7 +160,7 @@ async def gated_run_stream(
         message = refusal_message(exc)
         if message is None:
             raise
-        yield (message, "")
+        yield _notice(message)
         return
     async for snapshot in _follow(service, run_id):
         yield snapshot
@@ -253,13 +264,15 @@ def _run_panel(
     service: RunService, starter: Starter | None, gate: Gate | None
 ) -> tuple[gr.Textbox, gr.Button, Dependency]:
     subject, rival, category, passcode, start = _run_form()
-    progress = gr.Textbox(label="Progress", lines=12, interactive=False, elem_id="progress")
+    view = gr.HTML(elem_id=PROGRESS_VIEW_ID)
+    with gr.Accordion("Event log", open=False, elem_classes=["rp-log"]):
+        progress = gr.Textbox(label="Events", lines=12, interactive=False, elem_id="progress")
     card = gr.HTML(elem_classes=["card"])
     busy = start.click(_busy, outputs=[start], queue=False, api_visibility="private")
     started = busy.then(
         _start_handler(service, starter, gate),
         inputs=[subject, rival, category, passcode],
-        outputs=[progress, card],
+        outputs=[progress, card, view],
     )
     return passcode, start, started
 
