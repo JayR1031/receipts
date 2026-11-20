@@ -84,7 +84,7 @@ async def _follow(service: RunService, run_id: RunId) -> AsyncIterator[Snapshot]
         if isinstance(event, DoneEvent):
             break
     card = await service.get(run_id)
-    yield ("\n".join(lines), render_battlecard(card) if card else NO_CARD)
+    yield ("\n".join(lines), render_battlecard(card, share=True) if card else NO_CARD)
 
 
 async def run_stream(
@@ -260,7 +260,7 @@ def _history_panel(service: RunService, blocks: gr.Blocks, gate: Gate | None) ->
         if row is None or row >= len(ids):
             return ""
         found = await service.get(RunId(ids[row]))
-        return render_battlecard(found) if found else NO_CARD
+        return render_battlecard(found, share=True) if found else NO_CARD
 
     refresh.click(load, outputs=[table, run_ids])
     blocks.load(load, outputs=[table, run_ids])

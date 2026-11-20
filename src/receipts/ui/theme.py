@@ -174,48 +174,8 @@ THEME = BaseTheme(
     font_mono=(Font("JetBrains Mono"), "ui-monospace", "SFMono-Regular", "Menlo", "monospace"),
 ).set(**_both_modes(_BOTH_MODES), **_ANY_MODE)
 
-CSS = f"""
-/* Gradio's body is a flex column, so an auto-margined container shrinks to its widest child. */
-.gradio-container {{ width: 100%; max-width: 1100px !important; margin: 0 auto; }}
-gradio-app {{
-  background: radial-gradient(50% 320px at 50% 0%, rgba(255, 255, 255, 0.05), transparent)
-    no-repeat, {BLACK} !important;
-}}
-.block:has(.receipts-header) {{ width: 100%; margin-left: 0; margin-right: 0; }}
-.receipts-header {{
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 20px 0 12px;
-}}
-.receipts-brand {{ display: flex; align-items: center; gap: 16px; min-width: 0; }}
-.receipts-brand img {{ height: {LOGO_HEIGHT_PX}px; width: auto; display: block; }}
-.receipts-tagline {{
-  margin: 0; padding-left: 16px; border-left: 1px solid {BORDER};
-  color: {TEXT_SECONDARY}; font-size: 0.875rem; line-height: 1.25rem;
-}}
-@media (max-width: 640px) {{
-  .receipts-brand {{ flex-direction: column; align-items: flex-start; gap: 6px; }}
-  .receipts-tagline {{ border-left: 0; padding-left: 0; }}
-}}
-.receipts-about {{
-  color: {TEXT_SECONDARY} !important; font-size: 0.875rem; text-decoration: none !important;
-  padding: 6px 14px; border: 1px solid {BORDER}; border-radius: 9999px;
-  transition: color 0.2s ease, border-color 0.2s ease;
-}}
-.receipts-about:hover {{ color: {TEXT} !important; border-color: {BORDER_FOCUS}; }}
-#progress textarea {{
-  font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; color: {TEXT_SECONDARY};
-}}
-/* Gradio sets table cells in the mono font; the landing page keeps mono for receipts only. */
-.table-wrap th, .table-wrap .body-cell, .table-wrap .body-cell * {{
-  font-family: var(--font) !important;
-}}
-.table-wrap th {{ color: {TEXT_SECONDARY}; font-weight: 500 !important; }}
-/* The battlecard (render.py): a score header, then one card per claim, as in the landing
-   page's receipt preview. */
-.block.card:has(.bc) {{
-  background: {SURFACE}; border: 1px solid {BORDER} !important; border-radius: 12px;
-  padding: 28px !important;
-}}
+BATTLECARD_CSS = f"""
+/* The battlecard (render.py), shared by the app and the public share page (share.py). */
 .bc {{ display: flex; flex-direction: column; gap: 28px; color: {TEXT}; }}
 .bc-head {{ display: flex; flex-direction: column; gap: 10px; }}
 .bc-eyebrow, .bc-method, .bc-domain-count {{
@@ -236,6 +196,12 @@ gradio-app {{
 }}
 .bc-meter-fill {{ display: block; height: 100%; background: {VERIFIED}; }}
 .bc-meta {{ margin: 0; color: {TEXT_SECONDARY}; font-size: 0.8125rem; }}
+.bc-share {{
+  align-self: flex-start; color: {TEXT} !important; font-size: 0.8125rem;
+  text-decoration: none !important; padding: 4px 12px; border: 1px solid {BORDER};
+  border-radius: 9999px;
+}}
+.bc-share:hover {{ border-color: {BORDER_FOCUS}; }}
 .bc-domain {{ display: flex; flex-direction: column; gap: 10px; }}
 .bc-domain-title {{
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
@@ -284,6 +250,51 @@ a.bc-url:hover {{ color: {TEXT_SECONDARY} !important; }}
 /* The only colours, for status marks; render.py wraps battlecard status marks in these classes. */
 .status-verified {{ color: {VERIFIED}; }}
 .status-dropped {{ color: {DROPPED}; }}
+"""
+
+CSS = f"""
+/* Gradio's body is a flex column, so an auto-margined container shrinks to its widest child. */
+.gradio-container {{ width: 100%; max-width: 1100px !important; margin: 0 auto; }}
+gradio-app {{
+  background: radial-gradient(50% 320px at 50% 0%, rgba(255, 255, 255, 0.05), transparent)
+    no-repeat, {BLACK} !important;
+}}
+.block:has(.receipts-header) {{ width: 100%; margin-left: 0; margin-right: 0; }}
+.receipts-header {{
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 20px 0 12px;
+}}
+.receipts-brand {{ display: flex; align-items: center; gap: 16px; min-width: 0; }}
+.receipts-brand img {{ height: {LOGO_HEIGHT_PX}px; width: auto; display: block; }}
+.receipts-tagline {{
+  margin: 0; padding-left: 16px; border-left: 1px solid {BORDER};
+  color: {TEXT_SECONDARY}; font-size: 0.875rem; line-height: 1.25rem;
+}}
+@media (max-width: 640px) {{
+  .receipts-brand {{ flex-direction: column; align-items: flex-start; gap: 6px; }}
+  .receipts-tagline {{ border-left: 0; padding-left: 0; }}
+}}
+.receipts-about {{
+  color: {TEXT_SECONDARY} !important; font-size: 0.875rem; text-decoration: none !important;
+  padding: 6px 14px; border: 1px solid {BORDER}; border-radius: 9999px;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}}
+.receipts-about:hover {{ color: {TEXT} !important; border-color: {BORDER_FOCUS}; }}
+#progress textarea {{
+  font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; color: {TEXT_SECONDARY};
+}}
+/* Gradio sets table cells in the mono font; the landing page keeps mono for receipts only. */
+.table-wrap th, .table-wrap .body-cell, .table-wrap .body-cell * {{
+  font-family: var(--font) !important;
+}}
+.table-wrap th {{ color: {TEXT_SECONDARY}; font-weight: 500 !important; }}
+/* The battlecard (render.py): a score header, then one card per claim, as in the landing
+   page's receipt preview. */
+.block.card:has(.bc) {{
+  background: {SURFACE}; border: 1px solid {BORDER} !important; border-radius: 12px;
+  padding: 28px !important;
+}}
+{BATTLECARD_CSS}
 footer {{ filter: grayscale(1); opacity: 0.6; }}
 """
 
