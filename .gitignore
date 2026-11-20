@@ -28,3 +28,5 @@ next-env.d.ts
 *.tsbuildinfo
 playwright-report/
 test-results/
+# verifier evaluation: full page snapshots stay local (scripts/verifier_eval/record.py)
+.eval-raw/

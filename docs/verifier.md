@@ -109,6 +109,26 @@ or a live run. `rules.py`'s module docstring lists the same limits.
 - **Search receipts skip the claim-number rule** (by design): there is no quote to check the
   claim against, so a price in the claim is not compared with the logged search result.
 
+## How accurate is it
+
+Issue #59 measures the verifier on real claims, not generated ones: 231 claims from ten real runs,
+each labeled by whether its receipt backs it. The labeling guide, the set and what it found are in
+[docs/verifier-eval.md](verifier-eval.md). On the 147 claims whose evidence was recorded, the
+verifier is re-run offline; baseline of 2026-11-20 (`scripts/verifier_eval/report.py`):
+
+| Measure | Value |
+|---|---|
+| Precision: of the claims verified, the share whose receipt backs them | 96 of 129 (74.4%; 95% CI 66.3% to 81.2%) |
+| Recall: of the claims whose receipt backs them, the share verified | 96 of 97 (99.0%; 95% CI 94.4% to 99.8%) |
+| Verified but not backed, `quote_exact` | 18 of 94 |
+| Verified but not backed, `search_log` | 15 of 35 |
+| Failing claims Mellea rewrote / rewrites backed | 17 of 17 / 17 of 17 |
+| Stored runs (older rules, quote alone, not re-run) | 41 of 82 (50.0%) |
+
+`tests/test_verify_eval.py` fails CI when precision falls below 72% or recall below 97%
+(`PRECISION_FLOOR` and `RECALL_FLOOR` in `receipts.verify.evaluation`), so a rule change that lets
+more unbacked claims through, or rejects more backed ones, has to be seen and argued for.
+
 ## The measurement
 
 `scripts/verify_fuzz/` holds the random tests that guarded PR #35 and the claim shapes added for
