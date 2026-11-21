@@ -19,7 +19,7 @@ dependencies = [
     "rapidfuzz>=3.9",
     "pyyaml>=6",
     "mellea==0.9.0",
-    "litellm>=1.95.0",
+    "litellm>=1.110.0",
     "joserfc>=1.8.0",
 ]
 
